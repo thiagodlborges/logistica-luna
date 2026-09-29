@@ -6,6 +6,8 @@
 <title>Luna Gelato — Logística de Entregas</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root {
   --bordo:#6B1E2E;--bordo-dark:#4A1220;--creme:#F5EFE4;--creme-dark:#EDE4D4;
@@ -99,6 +101,21 @@ body{font-family:"Jost",sans-serif;background:var(--creme);color:var(--text);min
 .b-manutencao{background:#F3E5F5;color:var(--purple)}
 .b-programada{background:#EDE4D4;color:var(--marrom)}
 .b-separado{background:#E3F2FD;color:#2B6CB0}
+.b-aprovado{background:#E4F3EA;color:var(--green)}
+.b-atrasado{background:#FBE3E3;color:var(--red)}
+.resumo-chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.resumo-chip{background:var(--white);border:1px solid var(--creme-dark);border-radius:10px;padding:10px 16px;min-width:130px}
+.resumo-chip b{display:block;font-family:"Cormorant Garamond",serif;font-size:1.5rem;color:var(--bordo);line-height:1.1}
+.resumo-chip span{font-size:0.66rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-light)}
+.grupo-titulo{font-size:0.72rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--marrom);margin:14px 0 8px;font-weight:600}
+.sug-card{border:1px solid var(--creme-dark);border-left:4px solid var(--bordo);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--white)}
+.sug-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.sug-titulo{font-family:"Cormorant Garamond",serif;font-size:1.15rem;font-weight:600;color:var(--bordo);flex:1;min-width:180px}
+.sug-item{display:flex;gap:8px;align-items:baseline;font-size:0.8rem;padding:3px 0}
+.sug-item .n{width:22px;text-align:right;color:var(--text-light);flex-shrink:0}
+.sug-aviso{background:#FFF3D6;color:#8A6416;border-radius:8px;padding:10px 12px;font-size:0.78rem;margin-top:10px}
+.sug-params{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px}
+.sug-params label{display:block;font-size:0.66rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-light);margin-bottom:4px}
 
 .rota-card{border:1px solid var(--creme-dark);border-radius:10px;padding:14px 16px;margin-bottom:10px;background:var(--white)}
 .rota-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;cursor:pointer}
@@ -223,7 +240,7 @@ body{font-family:"Jost",sans-serif;background:var(--creme);color:var(--text);min
       </div>
       <div class="card">
         <div class="card-title">Mapa das paradas pendentes</div>
-        <div class="map-box" id="mapaMonitorBox">Configure uma chave do Google Maps em "⚙️ Config" para ver o mapa aqui. Enquanto isso, use "Abrir no Google Maps".</div>
+        <div class="map-box" id="mapaMonitorBox">Carregando mapa…</div>
       </div>
     </div>
 
@@ -246,14 +263,32 @@ body{font-family:"Jost",sans-serif;background:var(--creme);color:var(--text);min
 
     <!-- TAB: DEMANDA -->
     <div class="tab-pane" id="tab-demanda">
+      <div class="resumo-chips" id="demandaResumo"></div>
+
       <div class="card">
-        <div class="card-title">Pedidos prontos para entrega (Pedidos — Fábrica)</div>
-        <div class="modal-sub">Pedidos com status "Separado", ainda sem entrega programada.</div>
+        <div class="card-title">Sugestão de rotas</div>
+        <div class="modal-sub">Agrupa a demanda por proximidade, respeitando a quantidade de entregas por dia, e ordena as paradas para o menor trajeto. Prioridade: pedidos pela data de entrega prevista; propostas de freezer pela data da proposta (mais antigas primeiro). A rota é aberta no Google Maps em modo navegação (gratuito).</div>
+        <div class="sug-params">
+          <div><label>Primeiro dia</label><input type="date" id="sugData" class="f-input"></div>
+          <div><label>Entregas por dia</label><input type="number" id="sugPorDia" class="f-input" min="1" max="60" value="10" style="width:100px"></div>
+          <div><label>Veículo</label><select id="sugVeiculo" class="f-select"></select></div>
+          <button class="btn btn-primary" onclick="gerarSugestoes()">🧭 Gerar sugestão</button>
+        </div>
+        <div id="listaSugestoes"><div class="empty-state">Defina os parâmetros e gere a sugestão.</div></div>
+      </div>
+
+      <div class="filters-bar">
+        <input type="text" id="fDemandaBusca" class="f-input" placeholder="Buscar loja, ponto de venda, cidade…" oninput="renderDemanda()" style="min-width:260px">
+        <button class="btn btn-secondary ml-auto" onclick="carregarDemanda()">↻ Atualizar</button>
+      </div>
+      <div class="card">
+        <div class="card-title">Pedidos aprovados aguardando envio (Pedidos — Fábrica)</div>
+        <div class="modal-sub">Entram após a aprovação do gestor comercial e ficam aqui até o status mudar para "Enviado".</div>
         <div id="listaDemandaPedidos"><div class="empty-state">Carregando…</div></div>
       </div>
       <div class="card">
-        <div class="card-title">Freezers ativos (Freezers Externos)</div>
-        <div class="modal-sub">Pontos com endereço cadastrado, ordenados pelo tempo desde a última entrega.</div>
+        <div class="card-title">Propostas de freezer (Freezers Externos)</div>
+        <div class="modal-sub">Última proposta de cada freezer ativo ainda não entregue, agrupada por cidade.</div>
         <div id="listaDemandaFreezers"><div class="empty-state">Carregando…</div></div>
       </div>
       <div class="card">
@@ -272,12 +307,41 @@ body{font-family:"Jost",sans-serif;background:var(--creme);color:var(--text);min
     <!-- TAB: CONFIG -->
     <div class="tab-pane" id="tab-config">
       <div class="card">
-        <div class="card-title">Integração com Google Maps</div>
-        <div class="modal-sub">Informe uma chave de API do Google Maps (Maps JavaScript API habilitada) para exibir o mapa com as paradas do dia no Painel. Sem chave, o módulo continua funcionando normalmente usando links diretos "Abrir no Google Maps" (sem necessidade de chave).</div>
-        <label class="m-label">Google Maps API Key</label>
-        <input type="text" id="cfgMapsKey" class="m-input" placeholder="AIza...">
-        <div class="m-actions"><button class="btn btn-primary" onclick="salvarConfigMaps()">Salvar</button></div>
+        <div class="card-title">Ponto de partida (fábrica)</div>
+        <div class="modal-sub">Usado como origem ao ordenar as paradas e ao abrir a rota no Google Maps. O mapa do painel usa OpenStreetMap e a busca de endereço usa o Nominatim; ambos são gratuitos e não exigem chave de API.</div>
+        <label class="m-label">Endereço</label>
+        <input type="text" id="cfgOrigemEndereco" class="m-input" placeholder="Rua, número, cidade">
+        <div class="m-row">
+          <div><label class="m-label">Latitude</label><input type="number" step="any" id="cfgOrigemLat" class="m-input"></div>
+          <div><label class="m-label">Longitude</label><input type="number" step="any" id="cfgOrigemLng" class="m-input"></div>
+        </div>
+        <div class="m-actions">
+          <button class="btn btn-secondary" onclick="localizarOrigem()">📍 Localizar endereço</button>
+          <button class="btn btn-primary" onclick="salvarConfigOrigem()">Salvar</button>
+        </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DESTINO (endereço/coordenadas de lojas e freezers sem localização) -->
+<div class="modal-overlay" id="modalDestino">
+  <div class="modal">
+    <div class="modal-title">Localização do destino</div>
+    <div class="modal-sub" id="mDestNome"></div>
+    <input type="hidden" id="mDestChave">
+    <label class="m-label">Endereço</label>
+    <input type="text" id="mDestEndereco" class="m-input" placeholder="Rua, número">
+    <label class="m-label">Cidade</label>
+    <input type="text" id="mDestCidade" class="m-input">
+    <div class="m-row">
+      <div><label class="m-label">Latitude</label><input type="number" step="any" id="mDestLat" class="m-input"></div>
+      <div><label class="m-label">Longitude</label><input type="number" step="any" id="mDestLng" class="m-input"></div>
+    </div>
+    <div class="m-actions">
+      <button class="btn btn-ghost" onclick="fecharModal('modalDestino')">Cancelar</button>
+      <button class="btn btn-secondary" onclick="localizarDestino()">📍 Localizar</button>
+      <button class="btn btn-primary" onclick="salvarDestino()">Salvar</button>
     </div>
   </div>
 </div>
@@ -400,7 +464,7 @@ const LOGO_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAB9AAAAfQCAY
 let meuUsuario = null, meuPerfil = null;
 let todosVeiculos = [], todasRotas = [], rotaAbertaId = null, todasEntregas = [];
 let demandaPedidos = [], demandaFreezers = [];
-let mapsApiKey = null, googleMapsCarregado = false, mapaMonitor = null;
+let mapaMonitor = null, origem = null, destinos = {};
 
 // ── BOOT ─────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
@@ -691,44 +755,363 @@ async function removerParada(id) {
   await carregarRotas();
 }
 
-// ── DEMANDA (pedidos + freezers) ────────────────────────────
-async function carregarDemanda() {
-  const [{ data: pedidos, error: e1 }, { data: freezers, error: e2 }, { data: entregasAtivas }] = await Promise.all([
-    sb.from('pedidos').select('*').eq('status','separado').order('data_entrega_prevista'),
-    sb.from('freezers').select('*').eq('status','ativo').order('ultima_entrega_em', { ascending: true, nullsFirst: true }),
-    sb.from('logistica_entregas').select('pedido_id,freezer_id,tipo').neq('status','cancelada')
+// ── DEMANDA (pedidos aprovados + propostas de freezer) ──────
+const STATUS_PEDIDO_DEMANDA = ['aprovado','separado','em_transporte'];
+let progPedido = new Map(), progFreezer = new Map(), sugestoes = [], sugSemLocal = [];
+
+const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const normNome = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+const chaveDestinoLoja = nome => 'destino:loja:' + normNome(nome);
+const chaveDestinoFreezer = id => 'destino:freezer:' + id;
+const fmtMoeda = v => Number(v || 0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
+const nomeFreezer = f => f.nome_fantasia || f.ponto_venda || f.codigo || 'Freezer';
+
+function hojeLocal() { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+function somarDias(str, n) {
+  const [y, m, d] = str.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + n);
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+function diaDaSemana(str) { const [y, m, d] = str.split('-').map(Number); return new Date(y, m - 1, d).getDay(); }
+function proximoDiaUtil(str) { while (diaDaSemana(str) === 0) str = somarDias(str, 1); return str; }
+function diaSemanaCurto(str) { return ['dom','seg','ter','qua','qui','sex','sáb'][diaDaSemana(str)]; }
+
+function localPedido(p) {
+  const d = destinos[chaveDestinoLoja(p.loja)];
+  return d && d.latitude != null && d.longitude != null ? d : null;
+}
+function localFreezer(f) {
+  const d = destinos[chaveDestinoFreezer(f.freezer_id)];
+  if (d && d.latitude != null && d.longitude != null) return d;
+  if (f.latitude != null && f.longitude != null) return { endereco: f.endereco, cidade: f.cidade, latitude: Number(f.latitude), longitude: Number(f.longitude) };
+  return null;
+}
+
+async function carregarDemandaPedidos() {
+  let r = await sb.rpc('logistica_demanda_pedidos');
+  if (r.error) {
+    console.warn('logistica_demanda_pedidos indisponível, usando consulta direta:', r.error.message);
+    r = await sb.from('pedidos').select('id,numero_pedido,loja,data_pedido,data_entrega_prevista,status,aprovado_por,observacoes')
+      .in('status', STATUS_PEDIDO_DEMANDA).order('data_entrega_prevista');
+  }
+  if (r.error) console.error(r.error);
+  return r.data || [];
+}
+
+async function carregarDemandaFreezers() {
+  const r = await sb.rpc('logistica_demanda_freezers');
+  if (!r.error) return r.data || [];
+  console.warn('logistica_demanda_freezers indisponível, usando consulta direta:', r.error.message);
+  const [{ data: vis, error: e1 }, { data: fz, error: e2 }] = await Promise.all([
+    sb.from('freezer_visitas').select('id,freezer_id,data_visita,criado_em,valor_liquido,freezer_visita_itens(id)')
+      .eq('status_venda', 'proposta').order('data_visita', { ascending:false }).order('criado_em', { ascending:false }),
+    sb.from('freezers').select('*').eq('status', 'ativo')
   ]);
   if (e1) console.error(e1);
   if (e2) console.error(e2);
-  const pedidosComEntrega = new Set((entregasAtivas||[]).filter(e=>e.tipo==='pedido').map(e=>e.pedido_id));
-  const freezersComEntrega = new Set((entregasAtivas||[]).filter(e=>e.tipo==='freezer').map(e=>e.freezer_id));
-  demandaPedidos = (pedidos||[]).filter(p=>!pedidosComEntrega.has(p.id));
-  demandaFreezers = (freezers||[]).filter(f=>!freezersComEntrega.has(f.id));
+  const fzMap = new Map((fz || []).map(f => [f.id, f]));
+  const vistos = new Set(), out = [];
+  (vis || []).forEach(v => {
+    const f = fzMap.get(v.freezer_id);
+    const qtd = (v.freezer_visita_itens || []).length;
+    if (!f || vistos.has(v.freezer_id) || !qtd) return;
+    if (f.ultima_entrega_em && new Date(f.ultima_entrega_em) >= new Date(v.criado_em)) return;
+    vistos.add(v.freezer_id);
+    out.push({ freezer_id:f.id, codigo:f.codigo, ponto_venda:f.ponto_venda, nome_fantasia:f.nome_fantasia, rede:f.rede,
+      endereco:f.endereco, cidade:f.cidade, latitude:f.latitude, longitude:f.longitude, ultima_entrega_em:f.ultima_entrega_em,
+      visita_id:v.id, data_visita:v.data_visita, valor_liquido:v.valor_liquido, qtd_itens:qtd });
+  });
+  return out;
+}
+
+async function carregarDemanda() {
+  const [pedidos, freezers, { data: ativas, error: e3 }] = await Promise.all([
+    carregarDemandaPedidos(),
+    carregarDemandaFreezers(),
+    sb.from('logistica_entregas').select('pedido_id,freezer_id,tipo,status,logistica_rotas(data_rota,logistica_veiculos(placa))')
+      .not('status', 'in', '(cancelada,entregue,problema)')
+  ]);
+  if (e3) console.error(e3);
+  progPedido = new Map(); progFreezer = new Map();
+  (ativas || []).forEach(e => {
+    const rota = e.logistica_rotas;
+    const info = { data: rota && rota.data_rota, placa: rota && rota.logistica_veiculos && rota.logistica_veiculos.placa };
+    if (e.tipo === 'pedido') progPedido.set(e.pedido_id, info);
+    else if (e.tipo === 'freezer') progFreezer.set(e.freezer_id, info);
+  });
+  demandaPedidos = pedidos;
+  demandaFreezers = freezers.map(f => ({ ...f, id: f.freezer_id }));
   document.getElementById('stPendentes').textContent = demandaPedidos.length + demandaFreezers.length;
+  const inpData = document.getElementById('sugData');
+  if (!inpData.value) inpData.value = proximoDiaUtil(hojeLocal());
+  preencherVeiculosSugestao();
   renderDemanda();
 }
 
+function badgeProgramado(prog) {
+  return `<span class="badge b-programada">📋 Rota ${prog.data ? fmtData(prog.data) : ''}${prog.placa ? ' · ' + escHtml(prog.placa) : ''}</span>`;
+}
+function badgeStatusPedido(s) {
+  return `<span class="badge b-${escHtml(s)}">${{ aprovado:'Aprovado', separado:'Separado', em_transporte:'Em transporte' }[s] || escHtml(s)}</span>`;
+}
+
+function linhaPedido(p, hoje) {
+  const loc = localPedido(p), prog = progPedido.get(p.id);
+  const atrasado = p.data_entrega_prevista && p.data_entrega_prevista < hoje;
+  const local = loc ? '📍 ' + escHtml([loc.endereco, loc.cidade].filter(Boolean).join(', ') || 'coordenadas cadastradas') : '⚠️ sem localização';
+  return `<div class="demanda-row">
+    <div class="demanda-info">
+      <div class="demanda-nome">🏪 ${escHtml(p.numero_pedido || '#' + p.id)} — ${escHtml(p.loja)}</div>
+      <div class="demanda-sub">Entrega prevista: ${fmtData(p.data_entrega_prevista)}${p.aprovado_por ? ' · aprovado por ' + escHtml(p.aprovado_por) : ''} · ${local}</div>
+    </div>
+    ${atrasado ? '<span class="badge b-atrasado">Atrasado</span>' : ''}
+    ${badgeStatusPedido(p.status)}
+    ${prog ? badgeProgramado(prog) : `
+      <button class="btn btn-ghost btn-sm" onclick="abrirModalDestinoPedido(${p.id})">📍 Localização</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalAdicionarParada('${p.id}','pedido')">+ Programar entrega</button>`}
+  </div>`;
+}
+
+function linhaFreezer(f) {
+  const loc = localFreezer(f), prog = progFreezer.get(f.freezer_id);
+  const end = loc ? [loc.endereco, loc.cidade].filter(Boolean).join(', ') : (f.endereco || '');
+  return `<div class="demanda-row">
+    <div class="demanda-info">
+      <div class="demanda-nome">❄️ ${escHtml(nomeFreezer(f))}${f.rede ? ' · ' + escHtml(f.rede) : ''}</div>
+      <div class="demanda-sub">Proposta de ${fmtData(f.data_visita)} · ${f.qtd_itens} item(ns)${f.valor_liquido != null ? ' · ' + fmtMoeda(f.valor_liquido) : ''} · última entrega: ${f.ultima_entrega_em ? fmtDataHora(f.ultima_entrega_em) : 'nunca'} · ${loc ? '📍 ' + escHtml(end || 'coordenadas cadastradas') : '⚠️ sem localização'}</div>
+    </div>
+    ${prog ? badgeProgramado(prog) : `
+      <button class="btn btn-ghost btn-sm" onclick="abrirModalDestinoFreezer('${f.freezer_id}')">📍 Localização</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalAdicionarParada('${f.freezer_id}','freezer')">+ Programar entrega</button>`}
+  </div>`;
+}
+
 function renderDemanda() {
+  const hoje = hojeLocal();
+  const busca = normNome(document.getElementById('fDemandaBusca').value);
+  const ped = demandaPedidos.filter(p => !busca || normNome(p.loja + ' ' + (p.numero_pedido || '')).includes(busca));
+  const frz = demandaFreezers.filter(f => !busca || normNome([nomeFreezer(f), f.rede, f.cidade, f.codigo].join(' ')).includes(busca));
+
+  const programados = demandaPedidos.filter(p => progPedido.has(p.id)).length + demandaFreezers.filter(f => progFreezer.has(f.freezer_id)).length;
+  const semLocal = demandaPedidos.filter(p => !progPedido.has(p.id) && !localPedido(p)).length
+    + demandaFreezers.filter(f => !progFreezer.has(f.freezer_id) && !localFreezer(f)).length;
+  const atrasados = demandaPedidos.filter(p => p.data_entrega_prevista && p.data_entrega_prevista < hoje).length;
+  document.getElementById('demandaResumo').innerHTML = [
+    [demandaPedidos.length, 'Pedidos a enviar'], [demandaFreezers.length, 'Propostas de freezer'],
+    [atrasados, 'Pedidos atrasados'], [programados, 'Já em rota planejada'], [semLocal, 'Sem localização']
+  ].map(([n, t]) => `<div class="resumo-chip"><b>${n}</b><span>${t}</span></div>`).join('');
+
   const wrapP = document.getElementById('listaDemandaPedidos');
-  wrapP.innerHTML = demandaPedidos.length ? demandaPedidos.map(p => `
-    <div class="demanda-row">
-      <div class="demanda-info">
-        <div class="demanda-nome">🏪 ${p.numero_pedido||'#'+p.id} — ${p.loja}</div>
-        <div class="demanda-sub">Entrega prevista: ${fmtData(p.data_entrega_prevista)}</div>
-      </div>
-      <span class="badge b-separado">Separado</span>
-      <button class="btn btn-primary btn-sm" onclick="abrirModalAdicionarParada('${p.id}','pedido')">+ Programar entrega</button>
-    </div>`).join('') : '<div class="empty-state">Nenhum pedido separado aguardando entrega.</div>';
+  const gruposP = [
+    ['Atrasados', ped.filter(p => p.data_entrega_prevista && p.data_entrega_prevista < hoje)],
+    ['Hoje', ped.filter(p => p.data_entrega_prevista === hoje)],
+    ['Próximos dias', ped.filter(p => p.data_entrega_prevista && p.data_entrega_prevista > hoje)],
+    ['Sem data prevista', ped.filter(p => !p.data_entrega_prevista)]
+  ].filter(g => g[1].length);
+  wrapP.innerHTML = gruposP.length
+    ? gruposP.map(([t, l]) => `<div class="grupo-titulo">${t} (${l.length})</div>` + l.map(p => linhaPedido(p, hoje)).join('')).join('')
+    : '<div class="empty-state">Nenhum pedido aprovado aguardando envio.</div>';
 
   const wrapF = document.getElementById('listaDemandaFreezers');
-  wrapF.innerHTML = demandaFreezers.length ? demandaFreezers.map(f => `
-    <div class="demanda-row">
-      <div class="demanda-info">
-        <div class="demanda-nome">❄️ ${f.ponto_venda} ${f.rede?'· '+f.rede:''}</div>
-        <div class="demanda-sub">${f.endereco||'sem endereço cadastrado'} ${f.cidade?'· '+f.cidade:''} · última entrega: ${f.ultima_entrega_em?fmtDataHora(f.ultima_entrega_em):'nunca'}</div>
+  const porCidade = {};
+  frz.forEach(f => { const loc = localFreezer(f); const c = (loc && loc.cidade) || f.cidade || 'Sem cidade'; (porCidade[c] = porCidade[c] || []).push(f); });
+  const cidades = Object.keys(porCidade).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  wrapF.innerHTML = cidades.length
+    ? cidades.map(c => `<div class="grupo-titulo">${escHtml(c)} (${porCidade[c].length})</div>`
+        + porCidade[c].sort((a, b) => String(a.data_visita).localeCompare(String(b.data_visita))).map(linhaFreezer).join('')).join('')
+    : '<div class="empty-state">Nenhuma proposta de freezer pendente de entrega.</div>';
+}
+
+// ── LOCALIZAÇÃO DE DESTINOS (lojas/freezers sem coordenadas) ─
+function abrirModalDestino(chave, titulo, base) {
+  document.getElementById('mDestChave').value = chave;
+  document.getElementById('mDestNome').textContent = titulo;
+  document.getElementById('mDestEndereco').value = (base && base.endereco) || '';
+  document.getElementById('mDestCidade').value = (base && base.cidade) || '';
+  document.getElementById('mDestLat').value = base && base.latitude != null ? base.latitude : '';
+  document.getElementById('mDestLng').value = base && base.longitude != null ? base.longitude : '';
+  document.getElementById('modalDestino').classList.add('show');
+}
+function abrirModalDestinoPedido(id) {
+  const p = demandaPedidos.find(x => x.id === Number(id));
+  if (p) abrirModalDestino(chaveDestinoLoja(p.loja), '🏪 ' + p.loja + ' (vale para todos os pedidos desta loja)', destinos[chaveDestinoLoja(p.loja)]);
+}
+function abrirModalDestinoFreezer(id) {
+  const f = demandaFreezers.find(x => x.freezer_id === id);
+  if (f) abrirModalDestino(chaveDestinoFreezer(id), '❄️ ' + nomeFreezer(f), localFreezer(f) || { endereco: f.endereco, cidade: f.cidade });
+}
+async function localizarDestino() {
+  const q = [document.getElementById('mDestEndereco').value.trim(), document.getElementById('mDestCidade').value.trim()].filter(Boolean).join(', ');
+  if (!q) { alert('Informe o endereço e a cidade.'); return; }
+  try {
+    const r = await geocodificar(q);
+    if (!r) { alert('Endereço não encontrado. Confira o texto ou informe latitude e longitude manualmente.'); return; }
+    document.getElementById('mDestLat').value = r.latitude;
+    document.getElementById('mDestLng').value = r.longitude;
+  } catch (e) { alert(e.message); }
+}
+async function salvarDestino() {
+  const chave = document.getElementById('mDestChave').value;
+  const lat = parseFloat(document.getElementById('mDestLat').value), lng = parseFloat(document.getElementById('mDestLng').value);
+  if (isNaN(lat) || isNaN(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) { alert('Informe uma latitude e longitude válidas (use "Localizar").'); return; }
+  const dados = {
+    endereco: document.getElementById('mDestEndereco').value.trim() || null,
+    cidade: document.getElementById('mDestCidade').value.trim() || null,
+    latitude: lat, longitude: lng
+  };
+  const { error } = await salvarConfig([[chave, JSON.stringify(dados)]]);
+  if (error) { alert('Erro ao salvar: ' + error.message); return; }
+  destinos[chave] = dados;
+  fecharModal('modalDestino');
+  renderDemanda();
+}
+
+// ── SUGESTÃO DE ROTAS (agrupamento por proximidade + menor trajeto) ─
+function distKm(a, b) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * rad, dLng = (b.longitude - a.longitude) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.latitude * rad) * Math.cos(b.latitude * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function distanciaRota(pontos, partida) {
+  let total = 0, ant = partida || null;
+  pontos.forEach(p => { if (ant) total += distKm(ant, p); ant = p; });
+  return total;
+}
+// vizinho mais próximo a partir da fábrica + melhoria 2-opt (percurso aberto)
+function ordenarRota(pontos, partida) {
+  const restantes = pontos.slice(), ord = [];
+  let atual = partida || null;
+  while (restantes.length) {
+    let bi = 0;
+    if (atual) { let bd = Infinity; restantes.forEach((p, i) => { const d = distKm(atual, p); if (d < bd) { bd = d; bi = i; } }); }
+    atual = restantes.splice(bi, 1)[0];
+    ord.push(atual);
+  }
+  const seq = partida ? [partida, ...ord] : ord;
+  let melhorou = true, guarda = 0;
+  while (melhorou && guarda++ < 50) {
+    melhorou = false;
+    for (let i = 1; i < seq.length - 1; i++) {
+      for (let j = i + 1; j < seq.length; j++) {
+        const dep = j < seq.length - 1;
+        const antes = distKm(seq[i - 1], seq[i]) + (dep ? distKm(seq[j], seq[j + 1]) : 0);
+        const depois = distKm(seq[i - 1], seq[j]) + (dep ? distKm(seq[i], seq[j + 1]) : 0);
+        if (depois < antes - 1e-9) { seq.splice(i, j - i + 1, ...seq.slice(i, j + 1).reverse()); melhorou = true; }
+      }
+    }
+  }
+  return partida ? seq.slice(1) : seq;
+}
+// semente = item mais urgente; completa o dia com os vizinhos mais próximos
+function agruparPorProximidade(itens, porDia) {
+  const restantes = itens.slice().sort((a, b) => a.dataRef < b.dataRef ? -1 : a.dataRef > b.dataRef ? 1 : 0);
+  const grupos = [];
+  while (restantes.length) {
+    const semente = restantes.shift();
+    const vizinhos = restantes.map((it, i) => ({ it, i, d: distKm(semente, it) })).sort((a, b) => a.d - b.d).slice(0, porDia - 1);
+    const idx = new Set(vizinhos.map(v => v.i));
+    for (let i = restantes.length - 1; i >= 0; i--) if (idx.has(i)) restantes.splice(i, 1);
+    grupos.push([semente, ...vizinhos.map(v => v.it)]);
+  }
+  return grupos;
+}
+function itensParaSugestao() {
+  const itens = [], semLocal = [];
+  demandaPedidos.forEach(p => {
+    if (progPedido.has(p.id)) return;
+    const loc = localPedido(p);
+    const it = { tipo:'pedido', ref:p, loc, rotulo:(p.numero_pedido || '#' + p.id) + ' — ' + p.loja, dataRef:p.data_entrega_prevista || '9999-12-31' };
+    if (loc) { it.latitude = loc.latitude; it.longitude = loc.longitude; itens.push(it); } else semLocal.push(it);
+  });
+  demandaFreezers.forEach(f => {
+    if (progFreezer.has(f.freezer_id)) return;
+    const loc = localFreezer(f);
+    const it = { tipo:'freezer', ref:f, loc, rotulo:nomeFreezer(f) + (f.rede ? ' · ' + f.rede : ''), dataRef:f.data_visita || '9999-12-31' };
+    if (loc) { it.latitude = loc.latitude; it.longitude = loc.longitude; itens.push(it); } else semLocal.push(it);
+  });
+  return { itens, semLocal };
+}
+function linksGoogleMaps(pontos, partida) {
+  const fmt = p => `${p.latitude},${p.longitude}`;
+  const links = [];
+  let ini = partida || null;
+  for (let i = 0; i < pontos.length; i += 10) {   // Google Maps aceita até 9 paradas intermediárias por link
+    const trecho = pontos.slice(i, i + 10), destino = trecho[trecho.length - 1];
+    const ways = trecho.slice(0, -1).map(fmt).join('%7C');
+    let url = `https://www.google.com/maps/dir/?api=1&destination=${fmt(destino)}&travelmode=driving`;
+    if (ini) url += `&origin=${fmt(ini)}`;
+    if (ways) url += `&waypoints=${ways}`;
+    links.push(url);
+    ini = destino;
+  }
+  return links;
+}
+function preencherVeiculosSugestao() {
+  const sel = document.getElementById('sugVeiculo'), atual = sel.value;
+  const ativos = todosVeiculos.filter(v => v.status === 'ativo');
+  sel.innerHTML = ativos.length
+    ? ativos.map(v => `<option value="${v.id}">${escHtml(v.placa)}${v.modelo ? ' · ' + escHtml(v.modelo) : ''}</option>`).join('')
+    : '<option value="">Nenhum veículo ativo</option>';
+  if (atual) sel.value = atual;
+}
+function gerarSugestoes() {
+  const porDia = Math.max(1, parseInt(document.getElementById('sugPorDia').value, 10) || 10);
+  let dia = proximoDiaUtil(document.getElementById('sugData').value || hojeLocal());
+  const { itens, semLocal } = itensParaSugestao();
+  sugSemLocal = semLocal;
+  sugestoes = agruparPorProximidade(itens, porDia).map(grupo => {
+    const ordenados = ordenarRota(grupo, origem);
+    const s = { data: dia, itens: ordenados, km: distanciaRota(ordenados, origem), criada: false, urls: linksGoogleMaps(ordenados, origem) };
+    dia = proximoDiaUtil(somarDias(dia, 1));
+    return s;
+  });
+  renderSugestoes();
+}
+function renderSugestoes() {
+  const wrap = document.getElementById('listaSugestoes');
+  const aviso = sugSemLocal.length
+    ? `<div class="sug-aviso">⚠️ ${sugSemLocal.length} item(ns) sem localização ficaram de fora: ${sugSemLocal.slice(0, 6).map(i => escHtml(i.rotulo)).join('; ')}${sugSemLocal.length > 6 ? '…' : ''}. Use o botão "📍 Localização" nas listas abaixo e gere a sugestão de novo.</div>` : '';
+  if (!sugestoes.length) { wrap.innerHTML = '<div class="empty-state">Nenhuma demanda com localização disponível para sugerir rotas.</div>' + aviso; return; }
+  const total = sugestoes.reduce((n, s) => n + s.itens.length, 0);
+  wrap.innerHTML = `<div class="modal-sub">${total} entrega(s) em ${sugestoes.length} dia(s)${origem ? ', saindo da fábrica' : ' (cadastre o ponto de partida em Config para considerar a saída da fábrica)'}. Distâncias estimadas em linha reta ×1,3.</div>`
+    + sugestoes.map((s, i) => `<div class="sug-card">
+      <div class="sug-head">
+        <div class="sug-titulo">${diaSemanaCurto(s.data)} ${fmtData(s.data)} · ${s.itens.length} entrega(s) · ≈ ${Math.round(s.km * 1.3)} km</div>
+        ${s.urls.map((u, k) => `<button class="btn btn-secondary btn-sm" onclick="window.open(sugestoes[${i}].urls[${k}],'_blank')">🗺️ ${s.urls.length > 1 ? 'Google Maps — trecho ' + (k + 1) : 'Abrir no Google Maps'}</button>`).join('')}
+        <button class="btn btn-primary btn-sm" onclick="criarRotaSugerida(${i})" ${s.criada ? 'disabled' : ''}>${s.criada ? '✔ Rota criada' : '✅ Criar rota'}</button>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="abrirModalAdicionarParada('${f.id}','freezer')">+ Programar entrega</button>
-    </div>`).join('') : '<div class="empty-state">Nenhum freezer ativo encontrado.</div>';
+      ${s.itens.map((it, n) => `<div class="sug-item"><span class="n">${n + 1}.</span><span>${it.tipo === 'pedido' ? '🏪' : '❄️'} ${escHtml(it.rotulo)}<span style="color:var(--text-light)">${it.loc.cidade ? ' · ' + escHtml(it.loc.cidade) : ''}</span></span></div>`).join('')}
+    </div>`).join('') + aviso;
+}
+function paradaDeItem(it, rotaId, ordem) {
+  const base = { rota_id: rotaId, ordem, status: 'programada', latitude: it.latitude, longitude: it.longitude,
+    destino_endereco: it.loc.endereco || null, destino_cidade: it.loc.cidade || null };
+  if (it.tipo === 'pedido') {
+    const p = it.ref;
+    return { ...base, tipo: 'pedido', pedido_id: p.id, numero_pedido: p.numero_pedido, loja: p.loja, destino_nome: p.loja };
+  }
+  const f = it.ref;
+  return { ...base, tipo: 'freezer', freezer_id: f.freezer_id, freezer_codigo: f.codigo, freezer_rede: f.rede,
+    destino_nome: nomeFreezer(f), observacoes: `Proposta de ${fmtData(f.data_visita)} · ${f.qtd_itens} item(ns)` };
+}
+async function criarRotaSugerida(i) {
+  const s = sugestoes[i];
+  if (!s || s.criada) return;
+  const veiculoId = document.getElementById('sugVeiculo').value;
+  if (!veiculoId) { alert('Selecione um veículo ativo (cadastre em "🚚 Veículos").'); return; }
+  if (!confirm(`Criar a rota de ${fmtData(s.data)} com ${s.itens.length} entrega(s) na ordem sugerida?`)) return;
+  const veic = todosVeiculos.find(v => v.id === veiculoId);
+  const { data: rota, error } = await sb.from('logistica_rotas').insert({
+    veiculo_id: veiculoId, data_rota: s.data, motorista_nome: (veic && veic.motorista_nome) || null,
+    observacoes: 'Rota sugerida automaticamente', criado_por: (meuPerfil && meuPerfil.nome) || meuUsuario.email
+  }).select().single();
+  if (error) { alert('Erro ao criar rota: ' + error.message); return; }
+  const { error: e2 } = await sb.from('logistica_entregas').insert(s.itens.map((it, n) => paradaDeItem(it, rota.id, n + 1)));
+  if (e2) { await sb.from('logistica_rotas').delete().eq('id', rota.id); alert('Erro ao criar as paradas: ' + e2.message); return; }
+  s.criada = true;
+  await Promise.all([carregarRotas(), carregarDemanda()]);
+  renderSugestoes();
 }
 
 function abrirModalAdicionarParada(refId, tipo) {
@@ -741,11 +1124,13 @@ function abrirModalAdicionarParada(refId, tipo) {
   let nome='', endereco='', cidade='', origemTxt='Entrega avulsa (sem vínculo com pedido ou freezer).';
   if (tipo === 'pedido') {
     const p = demandaPedidos.find(x=>String(x.id)===String(refId));
-    nome = p.loja; endereco=''; cidade='';
-    origemTxt = `Pedido ${p.numero_pedido||'#'+p.id} — informe o endereço de entrega da loja.`;
+    const d = destinos[chaveDestinoLoja(p.loja)] || {};
+    nome = p.loja; endereco = d.endereco||''; cidade = d.cidade||'';
+    origemTxt = `Pedido ${p.numero_pedido||'#'+p.id}${d.endereco ? '.' : ' — informe o endereço de entrega da loja.'}`;
   } else if (tipo === 'freezer') {
     const f = demandaFreezers.find(x=>x.id===refId);
-    nome = f.ponto_venda; endereco = f.endereco||''; cidade = f.cidade||'';
+    const loc = localFreezer(f) || {};
+    nome = nomeFreezer(f); endereco = loc.endereco||f.endereco||''; cidade = loc.cidade||f.cidade||'';
     origemTxt = `Reposição do freezer ${f.codigo||''} (${f.rede||''}).`;
   }
   document.getElementById('mParadaOrigem').textContent = origemTxt;
@@ -788,10 +1173,13 @@ async function salvarParada() {
   if (tipo === 'pedido') {
     const p = demandaPedidos.find(x=>String(x.id)===String(refId));
     payload.pedido_id = p.id; payload.numero_pedido = p.numero_pedido; payload.loja = p.loja;
+    const loc = localPedido(p);
+    if (loc) { payload.latitude = loc.latitude; payload.longitude = loc.longitude; }
   } else if (tipo === 'freezer') {
     const f = demandaFreezers.find(x=>x.id===refId);
     payload.freezer_id = f.id; payload.freezer_codigo = f.codigo; payload.freezer_rede = f.rede;
-    payload.latitude = f.latitude; payload.longitude = f.longitude;
+    const loc = localFreezer(f);
+    if (loc) { payload.latitude = loc.latitude; payload.longitude = loc.longitude; }
   }
 
   const { error } = await sb.from('logistica_entregas').insert(payload);
@@ -857,35 +1245,56 @@ function abrirMapsTodasParadas() {
   window.open(url, '_blank');
 }
 
-// ── CONFIG (Google Maps API key + mapa embutido opcional) ──
+// ── CONFIG (ponto de partida, destinos e geocodificação gratuita) ──
 async function carregarConfigMaps() {
-  const { data } = await sb.from('logistica_config').select('*').eq('chave','google_maps_api_key').maybeSingle();
-  mapsApiKey = data ? data.valor : null;
-  document.getElementById('cfgMapsKey').value = mapsApiKey || '';
-}
-async function salvarConfigMaps() {
-  const valor = document.getElementById('cfgMapsKey').value.trim();
-  const { error } = await sb.from('logistica_config').upsert({
-    chave:'google_maps_api_key', valor: valor || null,
-    atualizado_por: (meuPerfil && meuPerfil.nome) || meuUsuario.email
+  const { data, error } = await sb.from('logistica_config').select('chave,valor');
+  if (error) { console.error(error); return; }
+  destinos = {};
+  const o = {};
+  (data || []).forEach(r => {
+    if (r.chave.startsWith('destino:')) { try { destinos[r.chave] = JSON.parse(r.valor); } catch (e) { /* ignora valor inválido */ } }
+    else if (r.chave.startsWith('origem_')) o[r.chave] = r.valor;
   });
-  if (error) { alert('Erro ao salvar: '+error.message); return; }
-  mapsApiKey = valor || null;
-  googleMapsCarregado = false;
-  alert('Configuração salva.');
-  carregarMonitor();
+  document.getElementById('cfgOrigemEndereco').value = o.origem_endereco || '';
+  document.getElementById('cfgOrigemLat').value = o.origem_lat || '';
+  document.getElementById('cfgOrigemLng').value = o.origem_lng || '';
+  const lat = parseFloat(o.origem_lat), lng = parseFloat(o.origem_lng);
+  origem = (!isNaN(lat) && !isNaN(lng)) ? { endereco: o.origem_endereco || '', latitude: lat, longitude: lng } : null;
 }
 
-function carregarScriptGoogleMaps() {
-  return new Promise((resolve, reject) => {
-    if (googleMapsCarregado || (window.google && window.google.maps)) { resolve(); return; }
-    if (!mapsApiKey) { reject('sem chave'); return; }
-    const s = document.createElement('script');
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(mapsApiKey)}`;
-    s.onload = () => { googleMapsCarregado = true; resolve(); };
-    s.onerror = () => reject('falha ao carregar');
-    document.head.appendChild(s);
-  });
+function salvarConfig(pares) {
+  const por = (meuPerfil && meuPerfil.nome) || meuUsuario.email;
+  return sb.from('logistica_config').upsert(pares.map(([chave, valor]) => ({ chave, valor, atualizado_por: por })));
+}
+
+// Busca de endereço via Nominatim (OpenStreetMap): gratuito, sem chave; uso pontual (1 consulta por clique).
+async function geocodificar(endereco) {
+  const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=' + encodeURIComponent(endereco));
+  if (!r.ok) throw new Error('Falha na busca de endereço. Tente novamente ou informe latitude e longitude.');
+  const j = await r.json();
+  return j.length ? { latitude: parseFloat(j[0].lat), longitude: parseFloat(j[0].lon) } : null;
+}
+
+async function localizarOrigem() {
+  const end = document.getElementById('cfgOrigemEndereco').value.trim();
+  if (!end) { alert('Informe o endereço da fábrica.'); return; }
+  try {
+    const r = await geocodificar(end);
+    if (!r) { alert('Endereço não encontrado. Confira o texto ou informe latitude e longitude manualmente.'); return; }
+    document.getElementById('cfgOrigemLat').value = r.latitude;
+    document.getElementById('cfgOrigemLng').value = r.longitude;
+  } catch (e) { alert(e.message); }
+}
+
+async function salvarConfigOrigem() {
+  const end = document.getElementById('cfgOrigemEndereco').value.trim();
+  const lat = parseFloat(document.getElementById('cfgOrigemLat').value), lng = parseFloat(document.getElementById('cfgOrigemLng').value);
+  if (isNaN(lat) || isNaN(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) { alert('Informe latitude e longitude válidas (use "Localizar endereço").'); return; }
+  const { error } = await salvarConfig([['origem_endereco', end], ['origem_lat', String(lat)], ['origem_lng', String(lng)]]);
+  if (error) { alert('Erro ao salvar: ' + error.message); return; }
+  origem = { endereco: end, latitude: lat, longitude: lng };
+  alert('Ponto de partida salvo.');
+  carregarMonitor();
 }
 
 // ── PAINEL / MONITORAMENTO ──────────────────────────────────
@@ -928,30 +1337,24 @@ async function carregarMonitor() {
 
 async function renderMapaMonitor(paradas) {
   const box = document.getElementById('mapaMonitorBox');
-  if (!mapsApiKey) {
-    box.textContent = 'Configure uma chave do Google Maps em "⚙️ Config" para ver o mapa aqui. Enquanto isso, use "Abrir no Google Maps".';
-    return;
-  }
-  if (!paradas.length) {
-    box.textContent = 'Nenhuma parada com coordenadas pendente para exibir no mapa nesta data.';
-    return;
-  }
-  try {
-    await carregarScriptGoogleMaps();
-  } catch (e) {
-    box.textContent = 'Não foi possível carregar o Google Maps (verifique a chave em Config).';
-    return;
-  }
+  if (mapaMonitor) { mapaMonitor.remove(); mapaMonitor = null; }
+  if (!window.L) { box.textContent = 'Não foi possível carregar o mapa. Use "Abrir no Google Maps".'; return; }
+  if (!paradas.length) { box.textContent = 'Nenhuma parada com coordenadas pendente para exibir no mapa nesta data.'; return; }
   box.innerHTML = '<div id="mapaMonitor"></div>';
-  const centro = { lat: parseFloat(paradas[0].latitude), lng: parseFloat(paradas[0].longitude) };
-  mapaMonitor = new google.maps.Map(document.getElementById('mapaMonitor'), { center: centro, zoom: 11 });
-  const bounds = new google.maps.LatLngBounds();
+  mapaMonitor = L.map('mapaMonitor');
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(mapaMonitor);
+  const pts = [];
   paradas.forEach(p => {
-    const pos = { lat: parseFloat(p.latitude), lng: parseFloat(p.longitude) };
-    new google.maps.Marker({ position: pos, map: mapaMonitor, title: p.destino_nome });
-    bounds.extend(pos);
+    const pos = [parseFloat(p.latitude), parseFloat(p.longitude)];
+    L.marker(pos).addTo(mapaMonitor).bindPopup(escHtml(p.destino_nome));
+    pts.push(pos);
   });
-  mapaMonitor.fitBounds(bounds);
+  if (origem) {
+    const pos = [origem.latitude, origem.longitude];
+    L.circleMarker(pos, { radius: 8, color: '#6B1E2E', fillOpacity: 0.9 }).addTo(mapaMonitor).bindPopup('Fábrica (ponto de partida)');
+    pts.push(pos);
+  }
+  mapaMonitor.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
 }
 </script>
 </body>
