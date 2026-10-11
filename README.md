@@ -6,14 +6,18 @@ Faz parte da suíte de sistemas da Luna Gelato (mesmo backend Supabase de [`pedi
 
 ## O que o módulo faz
 
-- **Painel de monitoramento**: rotas do dia, progresso de entregas, veículos ativos e mapa das paradas pendentes.
-- **Cadastro de veículos**: placa, modelo, tipo, capacidade, motorista padrão e status.
-- **Programação por veículo**: cria rotas (veículo + data + motorista) e adiciona paradas de entrega em sequência.
-- **Demanda de entrega**: puxa automaticamente
-  - pedidos com status **"Separado"** do módulo [Pedidos — Fábrica](https://github.com/thiagodlborges/pedidosacessofabrica);
-  - freezers ativos do módulo [Freezers Externos](https://github.com/thiagodlborges/freezers-luna), priorizando os que estão há mais tempo sem reposição.
-- **Integração com Google Maps**: abre a rota completa (todas as paradas) direto no Google Maps, sem precisar de chave de API. Opcionalmente, é possível configurar uma API Key do Google Maps (aba "Config") para exibir um mapa incorporado no painel de monitoramento.
-- **Sincronização automática de status**: ao confirmar a entrega de uma parada vinculada a um pedido, o pedido correspondente em "Pedidos — Fábrica" é automaticamente marcado como **"Enviado"** (o mesmo gatilho que já baixa o estoque da Fábrica continua valendo). Ao iniciar a rota, o pedido passa para **"Em transporte"**.
+- **Grade de Entregas**: grade semanal por **veículo × dia**. Clique numa célula para montar a rota do dia manualmente (adicionar da fila, reordenar ↑↓), **otimizar a ordem** pelo caminho mais curto e abrir a rota no Google Maps. O botão **Sugerir grade** distribui a fila entre os veículos/dias escolhidos agrupando por proximidade geográfica (mesma lógica de roteirização do módulo Freezers); a sugestão só é gravada depois de conferida.
+- **Fila de Entrega**: pedidos que a fábrica **enviou para a logística** (status `em_logistica`), freezers ativos, e — só para planejamento — o que ainda está em preparo na fábrica (aprovado/confirmado/separação) e o que foi devolvido para ajuste.
+- **Resultado da entrega**: em cada parada o operador marca **✓ Entregue** (o pedido passa a **Enviado** nos dois módulos, com a baixa de estoque) ou **✕ Não entregue** — reprogramar (volta para a fila) ou **devolver à fábrica** por inconsistência (falta de produto etc.).
+- **Devolução à fábrica**: o pedido volta ao módulo Pedidos — Fábrica (`devolvido_logistica`, com o motivo) para troca/remoção de itens; depois a fábrica usa **Reenviar p/ Logística** e ele reaparece na fila.
+- **Veículos**: só o **nome** é obrigatório; placa, modelo, capacidade, motorista etc. são opcionais.
+- **Endereços**: endereço de cada loja cadastrado uma vez (coordenadas localizadas pelo Google Maps com a chave da aba Config); usado na grade e na otimização. Opcionalmente, configure o **ponto de saída** (fábrica).
+- **Painel**: rotas do dia, progresso e mapa das paradas pendentes.
+
+> O status **Enviado** deixou de ser acionável no módulo Pedidos — Fábrica: o último status editável lá é *Enviar para Setor Logístico*. "Enviado" só é definido aqui, ao confirmar a entrega (garantido por gatilho no banco).
+
+### Banco de dados
+Rode `sql/2026-10-logistica-fluxo-simplificado.sql` uma vez no SQL Editor do Supabase **antes** de publicar esta versão (e a nova versão de `pedidosacessofabrica`). Pedidos já enviados permanecem como `enviado`.
 
 ## Stack
 
