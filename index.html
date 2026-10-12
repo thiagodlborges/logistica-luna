@@ -281,7 +281,12 @@ table.grade td.completo{background:#E4F3EA}
         <div id="listaDevolvidos"><div class="empty-state">Carregando…</div></div>
       </div>
       <div class="card">
-        <div class="card-title">Freezers ativos (Freezers Externos)</div>
+        <div class="card-title">Vendas de freezers aguardando envio</div>
+        <div class="modal-sub">Propostas efetivadas no módulo Freezers. O parcelamento e os vencimentos são definidos aqui, na confirmação da entrega (os prazos contam a partir dela) — só então o contas a receber é gerado.</div>
+        <div id="listaVendasFreezer"><div class="empty-state">Carregando…</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Freezers ativos — reposição sem venda (Freezers Externos)</div>
         <div class="modal-sub">Pontos com endereço cadastrado, ordenados pelo tempo desde a última entrega.</div>
         <div id="listaFilaFreezers"><div class="empty-state">Carregando…</div></div>
       </div>
@@ -416,7 +421,8 @@ table.grade td.completo{background:#E4F3EA}
     <label class="m-label">Incluir</label>
     <div class="chk-row">
       <label><input type="checkbox" id="sugPedidos" checked> Pedidos das lojas</label>
-      <label><input type="checkbox" id="sugFreezers"> Freezers</label>
+      <label><input type="checkbox" id="sugVendas" checked> Vendas de freezers</label>
+      <label><input type="checkbox" id="sugFreezers"> Freezers (reposição)</label>
     </div>
     <div class="m-actions" style="margin-top:14px"><button class="btn btn-secondary" onclick="gerarSugestao()">Gerar sugestão</button></div>
     <div id="sugResultado" style="margin-top:14px"></div>
@@ -433,6 +439,25 @@ table.grade td.completo{background:#E4F3EA}
     <div class="modal-title">Confirmar entrega</div>
     <input type="hidden" id="mEntregaId">
     <div class="modal-sub" id="mEntregaSub"></div>
+    <div id="mEntregaFreezer" style="display:none">
+      <div class="m-row">
+        <div><label class="m-label">Data da entrega</label><input type="date" class="m-input" id="mEntregaData" onchange="gerarParcelasEntrega()"></div>
+        <div><label class="m-label">Forma de pagamento</label>
+          <select class="m-select" id="mEntregaForma"><option>Boleto</option><option>PIX</option><option>Cartão</option><option>Dinheiro</option></select>
+        </div>
+      </div>
+      <div id="mEntregaParcBloco">
+        <div class="card-title" style="font-size:1.05rem;margin-top:14px">Parcelamento — <span id="mEntregaValorVenda"></span></div>
+        <label class="m-label">Prazos (dias após a entrega, separados por / )</label>
+        <div class="m-row">
+          <input class="m-input" id="mEntregaPrazos" value="30" placeholder="Ex: 30/60/90" onchange="gerarParcelasEntrega()">
+          <button class="btn btn-secondary" style="flex:0 0 auto" onclick="gerarParcelasEntrega()">Gerar parcelas</button>
+        </div>
+        <div id="mEntregaParcelas" style="margin-top:8px"></div>
+        <div class="demanda-sub" id="mEntregaSoma"></div>
+      </div>
+      <div class="m-aviso" id="mEntregaAvisoFreezer" style="margin-top:12px"></div>
+    </div>
     <label class="m-label">Recebido por</label>
     <input class="m-input" id="mEntregaRecebedor" placeholder="Nome de quem recebeu">
     <label class="m-label">Observações</label>
@@ -515,7 +540,8 @@ const LOGO_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAB9AAAAfQCAY
 
 let meuUsuario = null, meuPerfil = null;
 let todosVeiculos = [], rotasSemana = [], entregasSemana = [], monitorEntregas = [];
-let fila = { pedidos: [], fabrica: [], devolvidos: [], freezers: [] };
+let fila = { pedidos: [], fabrica: [], devolvidos: [], freezers: [], vendas: [] };
+let entVenda = null, entParcelas = [];
 let enderecosLojas = {}, deposito = null, diaAtual = null, sugestaoPlano = null;
 let semanaIni = segundaDe(hojeLocal());
 let mapsApiKey = null, googleMapsCarregado = false, mapaMonitor = null;
@@ -603,6 +629,7 @@ function segundaDe(iso) { const [y,m,d] = iso.split('-').map(Number); const wd =
 function fmtDiaCurto(iso) { const [y,m,d] = iso.split('-'); return `${d}/${m}`; }
 const DIAS_SEMANA = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
 function esc(s) { return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtMoeda(v) { return Number(v||0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' }); }
 function nomeVeiculo(v) { return v ? v.nome + (v.placa ? ' ('+v.placa+')' : '') : '—'; }
 function veiculosAtivos() { return todosVeiculos.filter(v => v.status === 'ativo'); }
 function paradasDaRota(rotaId) { return entregasSemana.filter(e => e.rota_id === rotaId && e.status !== 'cancelada').sort((a,b) => a.ordem - b.ordem); }
@@ -836,20 +863,22 @@ async function localizarLojasPendentes() {
 // ── FILA DE ENTREGA (pedidos liberados pela fábrica + freezers) ──
 async function carregarFila() {
   const STATUS_ATIVOS = ['pendente','programada','em_rota','problema'];
-  const [rLog, rFab, rDev, rFrz, rEnt] = await Promise.all([
+  const [rLog, rFab, rDev, rFrz, rEnt, rVen] = await Promise.all([
     sb.from('pedidos').select('id,numero_pedido,loja,data_entrega_prevista,status').eq('status','em_logistica').order('data_entrega_prevista'),
     sb.from('pedidos').select('id,numero_pedido,loja,data_entrega_prevista,status').in('status',['aprovado','confirmado','separado']).order('data_entrega_prevista'),
     sb.from('pedidos').select('id,numero_pedido,loja,data_entrega_prevista,logistica_motivo').eq('status','devolvido_logistica').order('data_entrega_prevista'),
     sb.from('freezers').select('*').eq('status','ativo').order('ultima_entrega_em', { ascending: true, nullsFirst: true }),
-    sb.from('logistica_entregas').select('pedido_id,freezer_id,tipo').in('status', STATUS_ATIVOS)
+    sb.from('logistica_entregas').select('pedido_id,freezer_id,tipo').in('status', STATUS_ATIVOS),
+    sb.from('logistica_entregas').select('*').eq('tipo','freezer').eq('status','pendente').is('rota_id', null).not('visita_id','is', null).order('criado_em')
   ]);
-  [rLog, rFab, rDev, rFrz, rEnt].forEach(r => r.error && console.error(r.error));
+  [rLog, rFab, rDev, rFrz, rEnt, rVen].forEach(r => r.error && console.error(r.error));
   const comEntrega = new Set((rEnt.data || []).map(e => e.tipo === 'pedido' ? 'p'+e.pedido_id : e.tipo === 'freezer' ? 'f'+e.freezer_id : ''));
   fila.pedidos = (rLog.data || []).filter(p => !comEntrega.has('p'+p.id));
   fila.fabrica = rFab.data || [];
   fila.devolvidos = rDev.data || [];
   fila.freezers = (rFrz.data || []).filter(f => !comEntrega.has('f'+f.id));
-  document.getElementById('stPendentes').textContent = fila.pedidos.length + fila.freezers.length;
+  fila.vendas = rVen.data || [];
+  document.getElementById('stPendentes').textContent = fila.pedidos.length + fila.freezers.length + fila.vendas.length;
   renderFila();
 }
 
@@ -888,6 +917,15 @@ function renderFila() {
       </div>
       <span class="badge b-problema">Devolvido</span>
     </div>`).join('') : '<div class="empty-state">Nenhum pedido devolvido.</div>';
+
+  document.getElementById('listaVendasFreezer').innerHTML = fila.vendas.length ? fila.vendas.map(e => `
+    <div class="demanda-row">
+      <div class="demanda-info">
+        <div class="demanda-nome">❄️ ${esc(e.destino_nome)} ${e.freezer_rede?'· '+esc(e.freezer_rede):''} — ${fmtMoeda(e.valor_venda)}</div>
+        <div class="demanda-sub">${esc(e.destino_endereco||'sem endereço')} ${e.destino_cidade?'· '+esc(e.destino_cidade):''} · ${esc(e.observacoes||'')}</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalProgramar('venda','${e.id}')">📅 Programar</button>
+    </div>`).join('') : '<div class="empty-state">Nenhuma venda de freezer aguardando envio.</div>';
 
   document.getElementById('listaFilaFreezers').innerHTML = fila.freezers.length ? fila.freezers.map(f => `
     <div class="demanda-row">
@@ -935,12 +973,17 @@ async function confirmarDevolucao() {
 }
 
 // ── PROGRAMAR (da fila para um veículo/dia) ─────────────────
+function itemDaFila(tipo, ref) {
+  return tipo === 'pedido' ? fila.pedidos.find(p => String(p.id) === String(ref))
+       : tipo === 'venda' ? fila.vendas.find(e => e.id === ref)
+       : fila.freezers.find(f => f.id === ref);
+}
 function abrirModalProgramar(tipo, ref) {
   if (!veiculosAtivos().length) { alert('Cadastre ao menos um veículo ativo (aba Veículos).'); return; }
-  const item = tipo === 'pedido' ? fila.pedidos.find(p => String(p.id) === String(ref)) : fila.freezers.find(f => f.id === ref);
+  const item = itemDaFila(tipo, ref);
   document.getElementById('mProgTipo').value = tipo;
   document.getElementById('mProgRef').value = ref;
-  document.getElementById('mProgSub').textContent = tipo === 'pedido' ? `${item.numero_pedido||'#'+item.id} — ${item.loja}` : `Freezer — ${item.ponto_venda}`;
+  document.getElementById('mProgSub').textContent = tipo === 'pedido' ? `${item.numero_pedido||'#'+item.id} — ${item.loja}` : tipo === 'venda' ? `Venda de freezer — ${item.destino_nome} (${fmtMoeda(item.valor_venda)})` : `Freezer — ${item.ponto_venda}`;
   const prev = tipo === 'pedido' ? item.data_entrega_prevista : null;
   document.getElementById('mProgData').value = prev && prev >= hojeLocal() ? prev : hojeLocal();
   document.getElementById('modalProgramar').classList.add('show');
@@ -950,7 +993,7 @@ async function salvarProgramacao() {
   const tipo = document.getElementById('mProgTipo').value, ref = document.getElementById('mProgRef').value;
   const veiculoId = document.getElementById('mProgVeiculo').value, data = document.getElementById('mProgData').value;
   if (!veiculoId || !data) { alert('Escolha o veículo e a data.'); return; }
-  const item = tipo === 'pedido' ? fila.pedidos.find(p => String(p.id) === String(ref)) : fila.freezers.find(f => f.id === ref);
+  const item = itemDaFila(tipo, ref);
   const err = await programarItens(veiculoId, data, [{ tipo, ref: item }]);
   if (err) { alert('Erro ao programar: '+err.message); return; }
   fecharModal('modalProgramar');
@@ -975,6 +1018,7 @@ async function getOuCriarRota(veiculoId, data) {
 }
 
 async function inserirParada(rota, tipo, ref) {
+  if (tipo === 'venda') return agendarVenda(rota, ref);
   const { data: last } = await sb.from('logistica_entregas').select('ordem').eq('rota_id', rota.id).order('ordem', { ascending: false }).limit(1);
   const payload = { rota_id: rota.id, ordem: (last && last.length ? last[0].ordem : 0) + 1, tipo, status: 'programada' };
   if (tipo === 'pedido') {
@@ -986,6 +1030,18 @@ async function inserirParada(rota, tipo, ref) {
       destino_endereco: ref.endereco || null, destino_cidade: ref.cidade || null, latitude: ref.latitude ?? null, longitude: ref.longitude ?? null });
   }
   return (await sb.from('logistica_entregas').insert(payload)).error;
+}
+
+// Venda de freezer efetivada: a entrega já existe (sem rota) — só encaixa na rota do dia.
+async function agendarVenda(rota, entrega) {
+  const { data: last } = await sb.from('logistica_entregas').select('ordem').eq('rota_id', rota.id).order('ordem', { ascending: false }).limit(1);
+  return (await sb.from('logistica_entregas').update({ rota_id: rota.id, ordem: (last && last.length ? last[0].ordem : 0) + 1, status: 'programada' }).eq('id', entrega.id)).error;
+}
+// Devolve a entrega de venda de freezer para a fila (nunca apaga: ela guarda a venda).
+async function desprogramarEntrega(e, nota) {
+  const upd = { rota_id: null, status: 'pendente' };
+  if (nota) upd.observacoes = [e.observacoes, nota].filter(Boolean).join(' | ');
+  return (await sb.from('logistica_entregas').update(upd).eq('id', e.id)).error;
 }
 
 async function programarItens(veiculoId, data, itens) {
@@ -1066,7 +1122,7 @@ function renderDia() {
       <div class="parada-ordem">${i+1}</div>
       <div class="parada-info">
         <div class="parada-nome">${iconeTipoEntrega(p.tipo)} ${esc(p.numero_pedido ? p.numero_pedido+' — ' : '')}${esc(p.destino_nome)}</div>
-        <div class="parada-end">${esc(p.destino_endereco||'sem endereço')} ${p.destino_cidade?'· '+esc(p.destino_cidade):''} ${temCoord(p)?'':'· ⚠️ sem coordenadas'}${p.recebido_por?' · recebido por '+esc(p.recebido_por):''}</div>
+        <div class="parada-end">${esc(p.destino_endereco||'sem endereço')} ${p.destino_cidade?'· '+esc(p.destino_cidade):''} ${temCoord(p)?'':'· ⚠️ sem coordenadas'}${p.valor_venda?' · '+fmtMoeda(p.valor_venda):''}${p.recebido_por?' · recebido por '+esc(p.recebido_por):''}</div>
       </div>
       <span class="badge b-${p.status}">${labelStatusEntrega(p.status)}</span>
       ${p.tipo==='pedido' ? `<button class="btn btn-ghost btn-sm" onclick="verItens(${p.pedido_id}, 'itens-dia-${p.id}')">📋</button>` : ''}
@@ -1094,6 +1150,7 @@ function toggleAdicionarDia() {
   if (box.style.display === 'block') { box.style.display = 'none'; return; }
   const itens = [
     ...fila.pedidos.map(p => ({ k: 'p'+p.id, html: `🏪 ${esc(p.numero_pedido||'#'+p.id)} — ${esc(p.loja)} <span class="demanda-sub">(prev. ${fmtData(p.data_entrega_prevista)})</span>` })),
+    ...fila.vendas.map(e => ({ k: 'v'+e.id, html: `❄️ ${esc(e.destino_nome)} — venda ${fmtMoeda(e.valor_venda)}` })),
     ...fila.freezers.map(f => ({ k: 'f'+f.id, html: `❄️ ${esc(f.ponto_venda)} ${f.rede?'· '+esc(f.rede):''}` }))
   ];
   box.innerHTML = itens.length
@@ -1109,6 +1166,8 @@ async function adicionarSelecionadosDia() {
   if (!marcados.length) { alert('Selecione ao menos um item.'); return; }
   const itens = marcados.map(k => k[0] === 'p'
     ? { tipo: 'pedido', ref: fila.pedidos.find(p => 'p'+p.id === k) }
+    : k[0] === 'v'
+    ? { tipo: 'venda', ref: fila.vendas.find(e => 'v'+e.id === k) }
     : { tipo: 'freezer', ref: fila.freezers.find(f => 'f'+f.id === k) });
   const err = await programarItens(diaAtual.veiculoId, diaAtual.data, itens);
   if (err) { alert('Erro ao adicionar: '+err.message); }
@@ -1137,7 +1196,8 @@ async function moverParada(id, dir) {
 
 async function removerParada(id) {
   if (!confirm('Remover esta parada da grade? O item volta para a fila de entregas.')) return;
-  const { error } = await sb.from('logistica_entregas').delete().eq('id', id);
+  const e = entregasSemana.find(x => x.id === id);
+  const { error } = e && e.visita_id ? { error: await desprogramarEntrega(e) } : await sb.from('logistica_entregas').delete().eq('id', id);
   if (error) { alert('Erro: '+error.message); return; }
   await Promise.all([carregarGrade(), carregarFila()]);
 }
@@ -1158,25 +1218,82 @@ async function otimizarDia() {
 }
 
 // ── ENTREGA FEITA / NÃO FEITA ───────────────────────────────
-function abrirEntrega(id) {
+async function abrirEntrega(id) {
   const e = entregasSemana.find(x => x.id === id);
+  entVenda = null; entParcelas = [];
+  document.getElementById('mEntregaFreezer').style.display = 'none';
   document.getElementById('mEntregaId').value = id;
   document.getElementById('mEntregaSub').textContent = `${e.destino_nome} — ${e.destino_endereco||''}`;
   document.getElementById('mEntregaRecebedor').value = '';
   document.getElementById('mEntregaObs').value = '';
   document.getElementById('mEntregaAviso').style.display = e.tipo === 'pedido' ? 'block' : 'none';
+  if (e.tipo === 'freezer' && e.visita_id) {
+    const { data, error } = await sb.rpc('logistica_info_venda_freezer', { p_entrega_id: id });
+    if (error) { alert('Erro ao carregar a venda: '+error.message); return; }
+    entVenda = data;
+    document.getElementById('mEntregaFreezer').style.display = 'block';
+    document.getElementById('mEntregaData').value = hojeLocal();
+    document.getElementById('mEntregaForma').value = data.forma_pagamento || 'Boleto';
+    document.getElementById('mEntregaValorVenda').textContent = fmtMoeda(data.valor_liquido);
+    document.getElementById('mEntregaParcBloco').style.display = data.ja_tem_cobranca ? 'none' : 'block';
+    document.getElementById('mEntregaAvisoFreezer').innerHTML = data.ja_tem_cobranca
+      ? 'Esta venda foi efetivada antes da mudança de fluxo e <strong>já tem contas a receber gerado</strong>. A confirmação apenas marca a entrega como feita.'
+      : 'Ao confirmar, o <strong>contas a receber é gerado</strong> com as parcelas acima (valor líquido da venda, após desconto).';
+    if (!data.ja_tem_cobranca) gerarParcelasEntrega();
+  }
   document.getElementById('modalEntrega').classList.add('show');
+}
+
+// Parcelas iguais (em centavos) com vencimento = data da entrega + prazo em dias
+function gerarParcelasEntrega() {
+  if (!entVenda) return;
+  const dataEnt = document.getElementById('mEntregaData').value || hojeLocal();
+  let prazos = document.getElementById('mEntregaPrazos').value.split(/[\/,;\s]+/).map(Number).filter(n => !isNaN(n) && n >= 0);
+  if (!prazos.length) prazos = [30];
+  const total = Math.round(Number(entVenda.valor_liquido) * 100), base = Math.floor(total / prazos.length), resto = total - base * prazos.length;
+  entParcelas = prazos.map((d, i) => ({ valor: ((base + (i < resto ? 1 : 0)) / 100).toFixed(2), vencimento: addDias(dataEnt, d) }));
+  renderParcelasEntrega();
+}
+function renderParcelasEntrega() {
+  document.getElementById('mEntregaParcelas').innerHTML = entParcelas.map((p, i) => `
+    <div class="m-row" style="align-items:center;margin-bottom:6px">
+      <div style="flex:0 0 30px;font-size:0.8rem">${i+1}ª</div>
+      <input type="number" step="0.01" min="0" class="m-input" value="${p.valor}" onchange="entParcelas[${i}].valor=this.value;atualizarSomaEntrega()">
+      <input type="date" class="m-input" value="${p.vencimento}" onchange="entParcelas[${i}].vencimento=this.value">
+    </div>`).join('');
+  atualizarSomaEntrega();
+}
+function atualizarSomaEntrega() {
+  const soma = entParcelas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+  const ok = Math.abs(soma - Number(entVenda.valor_liquido)) <= 0.01;
+  const el = document.getElementById('mEntregaSoma');
+  el.style.color = ok ? 'var(--green)' : 'var(--red)';
+  el.textContent = ok ? '✓ A soma das parcelas confere com o valor da venda.' : `Soma das parcelas (${fmtMoeda(soma)}) difere do valor da venda (${fmtMoeda(entVenda.valor_liquido)}).`;
 }
 
 async function salvarEntrega() {
   const id = document.getElementById('mEntregaId').value;
   const e = entregasSemana.find(x => x.id === id);
   const obs = document.getElementById('mEntregaObs').value.trim();
-  const { error } = await sb.from('logistica_entregas').update({
+  let error;
+  if (entVenda) {
+    // Venda de freezer: confirma o envio e gera o contas a receber (parcelamento definido aqui)
+    if (!entVenda.ja_tem_cobranca) {
+      const soma = entParcelas.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+      if (Math.abs(soma - Number(entVenda.valor_liquido)) > 0.01) { alert('A soma das parcelas precisa bater com o valor da venda.'); return; }
+      if (entParcelas.some(p => !p.vencimento)) { alert('Preencha o vencimento de todas as parcelas.'); return; }
+    }
+    ({ error } = await sb.rpc('logistica_confirmar_entrega_freezer', {
+      p_entrega_id: id, p_data_entrega: document.getElementById('mEntregaData').value || hojeLocal(),
+      p_recebido_por: document.getElementById('mEntregaRecebedor').value.trim() || null, p_observacoes: obs || null,
+      p_forma_pagamento: document.getElementById('mEntregaForma').value,
+      p_parcelas: entVenda.ja_tem_cobranca ? null : entParcelas.map(p => ({ valor: Number(p.valor), vencimento: p.vencimento }))
+    }));
+  } else ({ error } = await sb.from('logistica_entregas').update({
     status: 'entregue', hora_entrega_real: new Date().toISOString(),
     recebido_por: document.getElementById('mEntregaRecebedor').value.trim() || null,
     observacoes: obs ? [e.observacoes, obs].filter(Boolean).join(' | ') : e.observacoes
-  }).eq('id', id);
+  }).eq('id', id));
   if (error) { alert(error.message); return; }   // ex.: estoque insuficiente, avisado pelo gatilho de baixa
   await atualizarStatusRota(e.rota_id);
   fecharModal('modalEntrega');
@@ -1208,7 +1325,9 @@ async function salvarNaoEntregue() {
     if (!(await devolverPedido(e.pedido_id, motivo))) return;
   } else {
     const nota = `Não entregue em ${fmtData(diaAtual ? diaAtual.data : hojeLocal())}${motivo ? ': '+motivo : ''}`;
-    const { error } = await sb.from('logistica_entregas').update({ status: 'cancelada', observacoes: [e.observacoes, nota].filter(Boolean).join(' | ') }).eq('id', id);
+    const { error } = e.visita_id
+      ? { error: await desprogramarEntrega(e, nota) }
+      : await sb.from('logistica_entregas').update({ status: 'cancelada', observacoes: [e.observacoes, nota].filter(Boolean).join(' | ') }).eq('id', id);
     if (error) { alert(error.message); return; }
   }
   await atualizarStatusRota(e.rota_id);
@@ -1246,6 +1365,7 @@ function gerarSugestao() {
   if (!dias.length || !veics.length) { alert('Escolha ao menos um dia e um veículo.'); return; }
   let itens = [];
   if (document.getElementById('sugPedidos').checked) fila.pedidos.forEach(p => { const e = enderecosLojas[p.loja] || {}; itens.push({ tipo: 'pedido', ref: p, nome: `${p.numero_pedido||'#'+p.id} — ${p.loja}`, prev: p.data_entrega_prevista, latitude: e.latitude, longitude: e.longitude }); });
+  if (document.getElementById('sugVendas').checked) fila.vendas.forEach(e => itens.push({ tipo: 'venda', ref: e, nome: '❄️ '+e.destino_nome+' (venda)', prev: null, latitude: e.latitude, longitude: e.longitude }));
   if (document.getElementById('sugFreezers').checked) fila.freezers.forEach(f => itens.push({ tipo: 'freezer', ref: f, nome: '❄️ '+f.ponto_venda, prev: null, latitude: f.latitude, longitude: f.longitude }));
   if (!itens.length) { alert('Não há itens na fila para distribuir.'); return; }
   itens = itens.map(i => temCoord(i) ? { ...i, ...comNumeros(i), geo: true } : { ...i, geo: false });
