@@ -287,11 +287,6 @@ table.grade td.completo{background:#E4F3EA}
         <div class="modal-sub">Propostas efetivadas no módulo Freezers. O parcelamento e os vencimentos são definidos aqui, na confirmação da entrega (os prazos contam a partir dela) — só então o contas a receber é gerado.</div>
         <div id="listaVendasFreezer"><div class="empty-state">Carregando…</div></div>
       </div>
-      <div class="card">
-        <div class="card-title">Freezers ativos — reposição sem venda (Freezers Externos)</div>
-        <div class="modal-sub">Pontos com endereço cadastrado, ordenados pelo tempo desde a última entrega.</div>
-        <div id="listaFilaFreezers"><div class="empty-state">Carregando…</div></div>
-      </div>
     </div>
 
     <!-- TAB: VEÍCULOS -->
@@ -424,7 +419,6 @@ table.grade td.completo{background:#E4F3EA}
     <div class="chk-row">
       <label><input type="checkbox" id="sugPedidos" checked> Pedidos das lojas</label>
       <label><input type="checkbox" id="sugVendas" checked> Vendas de freezers</label>
-      <label><input type="checkbox" id="sugFreezers"> Freezers (reposição)</label>
     </div>
     <div class="m-actions" style="margin-top:14px"><button class="btn btn-secondary" onclick="gerarSugestao()">Gerar sugestão</button></div>
     <div id="sugResultado" style="margin-top:14px"></div>
@@ -542,7 +536,7 @@ const LOGO_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAB9AAAAfQCAY
 
 let meuUsuario = null, meuPerfil = null;
 let todosVeiculos = [], rotasSemana = [], entregasSemana = [], monitorEntregas = [];
-let fila = { pedidos: [], fabrica: [], devolvidos: [], freezers: [], vendas: [] };
+let fila = { pedidos: [], fabrica: [], devolvidos: [], vendas: [] };
 let entVenda = null, entParcelas = [];
 let enderecosLojas = {}, deposito = null, diaAtual = null, sugestaoPlano = null;
 let semanaIni = segundaDe(hojeLocal());
@@ -865,22 +859,20 @@ async function localizarLojasPendentes() {
 // ── FILA DE ENTREGA (pedidos liberados pela fábrica + freezers) ──
 async function carregarFila() {
   const STATUS_ATIVOS = ['pendente','programada','em_rota','problema'];
-  const [rLog, rFab, rDev, rFrz, rEnt, rVen] = await Promise.all([
+  const [rLog, rFab, rDev, rEnt, rVen] = await Promise.all([
     sb.from('pedidos').select('id,numero_pedido,loja,data_entrega_prevista,status').eq('status','em_logistica').order('data_entrega_prevista'),
     sb.from('pedidos').select('id,numero_pedido,loja,data_entrega_prevista,status').in('status',['aprovado','confirmado','separado']).order('data_entrega_prevista'),
     sb.from('pedidos').select('id,numero_pedido,loja,data_entrega_prevista,logistica_motivo').eq('status','devolvido_logistica').order('data_entrega_prevista'),
-    sb.from('freezers').select('*').eq('status','ativo').order('ultima_entrega_em', { ascending: true, nullsFirst: true }),
     sb.from('logistica_entregas').select('pedido_id,freezer_id,tipo').in('status', STATUS_ATIVOS),
     sb.from('logistica_entregas').select('*').eq('tipo','freezer').eq('status','pendente').is('rota_id', null).not('visita_id','is', null).order('criado_em')
   ]);
-  [rLog, rFab, rDev, rFrz, rEnt, rVen].forEach(r => r.error && console.error(r.error));
+  [rLog, rFab, rDev, rEnt, rVen].forEach(r => r.error && console.error(r.error));
   const comEntrega = new Set((rEnt.data || []).map(e => e.tipo === 'pedido' ? 'p'+e.pedido_id : e.tipo === 'freezer' ? 'f'+e.freezer_id : ''));
   fila.pedidos = (rLog.data || []).filter(p => !comEntrega.has('p'+p.id));
   fila.fabrica = rFab.data || [];
   fila.devolvidos = rDev.data || [];
-  fila.freezers = (rFrz.data || []).filter(f => !comEntrega.has('f'+f.id));
   fila.vendas = rVen.data || [];
-  document.getElementById('stPendentes').textContent = fila.pedidos.length + fila.freezers.length + fila.vendas.length;
+  document.getElementById('stPendentes').textContent = fila.pedidos.length + fila.vendas.length;
   renderFila();
 }
 
@@ -928,15 +920,6 @@ function renderFila() {
       </div>
       <button class="btn btn-primary btn-sm" onclick="abrirModalProgramar('venda','${e.id}')">📅 Programar</button>
     </div>`).join('') : '<div class="empty-state">Nenhuma venda de freezer aguardando envio.</div>';
-
-  document.getElementById('listaFilaFreezers').innerHTML = fila.freezers.length ? fila.freezers.map(f => `
-    <div class="demanda-row">
-      <div class="demanda-info">
-        <div class="demanda-nome">❄️ ${esc(f.ponto_venda)} ${f.rede?'· '+esc(f.rede):''}</div>
-        <div class="demanda-sub">${esc(f.endereco||'sem endereço cadastrado')} ${f.cidade?'· '+esc(f.cidade):''} · última entrega: ${f.ultima_entrega_em?fmtDataHora(f.ultima_entrega_em):'nunca'}</div>
-      </div>
-      <button class="btn btn-primary btn-sm" onclick="abrirModalProgramar('freezer','${f.id}')">📅 Programar</button>
-    </div>`).join('') : '<div class="empty-state">Nenhum freezer ativo encontrado.</div>';
 }
 
 async function verItens(pedidoId, boxId) {
@@ -977,15 +960,14 @@ async function confirmarDevolucao() {
 // ── PROGRAMAR (da fila para um veículo/dia) ─────────────────
 function itemDaFila(tipo, ref) {
   return tipo === 'pedido' ? fila.pedidos.find(p => String(p.id) === String(ref))
-       : tipo === 'venda' ? fila.vendas.find(e => e.id === ref)
-       : fila.freezers.find(f => f.id === ref);
+       : fila.vendas.find(e => e.id === ref);
 }
 function abrirModalProgramar(tipo, ref) {
   if (!veiculosAtivos().length) { alert('Cadastre ao menos um veículo ativo (aba Veículos).'); return; }
   const item = itemDaFila(tipo, ref);
   document.getElementById('mProgTipo').value = tipo;
   document.getElementById('mProgRef').value = ref;
-  document.getElementById('mProgSub').textContent = tipo === 'pedido' ? `${item.numero_pedido||'#'+item.id} — ${item.loja}` : tipo === 'venda' ? `Venda de freezer — ${item.destino_nome} (${fmtMoeda(item.valor_venda)})` : `Freezer — ${item.ponto_venda}`;
+  document.getElementById('mProgSub').textContent = tipo === 'pedido' ? `${item.numero_pedido||'#'+item.id} — ${item.loja}` : `Venda de freezer — ${item.destino_nome} (${fmtMoeda(item.valor_venda)})`;
   const prev = tipo === 'pedido' ? item.data_entrega_prevista : null;
   document.getElementById('mProgData').value = prev && prev >= hojeLocal() ? prev : hojeLocal();
   document.getElementById('modalProgramar').classList.add('show');
@@ -1152,8 +1134,7 @@ function toggleAdicionarDia() {
   if (box.style.display === 'block') { box.style.display = 'none'; return; }
   const itens = [
     ...fila.pedidos.map(p => ({ k: 'p'+p.id, html: `🏪 ${esc(p.numero_pedido||'#'+p.id)} — ${esc(p.loja)} <span class="demanda-sub">(prev. ${fmtData(p.data_entrega_prevista)})</span>` })),
-    ...fila.vendas.map(e => ({ k: 'v'+e.id, html: `❄️ ${esc(e.destino_nome)} — venda ${fmtMoeda(e.valor_venda)}` })),
-    ...fila.freezers.map(f => ({ k: 'f'+f.id, html: `❄️ ${esc(f.ponto_venda)} ${f.rede?'· '+esc(f.rede):''}` }))
+    ...fila.vendas.map(e => ({ k: 'v'+e.id, html: `❄️ ${esc(e.destino_nome)} — venda ${fmtMoeda(e.valor_venda)}` }))
   ];
   box.innerHTML = itens.length
     ? '<div class="card-title" style="font-size:1rem">Fila de entregas</div><div class="chk-col" style="max-height:220px;overflow:auto">' +
@@ -1168,9 +1149,7 @@ async function adicionarSelecionadosDia() {
   if (!marcados.length) { alert('Selecione ao menos um item.'); return; }
   const itens = marcados.map(k => k[0] === 'p'
     ? { tipo: 'pedido', ref: fila.pedidos.find(p => 'p'+p.id === k) }
-    : k[0] === 'v'
-    ? { tipo: 'venda', ref: fila.vendas.find(e => 'v'+e.id === k) }
-    : { tipo: 'freezer', ref: fila.freezers.find(f => 'f'+f.id === k) });
+    : { tipo: 'venda', ref: fila.vendas.find(e => 'v'+e.id === k) });
   const err = await programarItens(diaAtual.veiculoId, diaAtual.data, itens);
   if (err) { alert('Erro ao adicionar: '+err.message); }
   document.getElementById('mDiaAdd').style.display = 'none';
@@ -1368,7 +1347,6 @@ function gerarSugestao() {
   let itens = [];
   if (document.getElementById('sugPedidos').checked) fila.pedidos.forEach(p => { const e = enderecosLojas[p.loja] || {}; itens.push({ tipo: 'pedido', ref: p, nome: `${p.numero_pedido||'#'+p.id} — ${p.loja}`, prev: p.data_entrega_prevista, latitude: e.latitude, longitude: e.longitude }); });
   if (document.getElementById('sugVendas').checked) fila.vendas.forEach(e => itens.push({ tipo: 'venda', ref: e, nome: '❄️ '+e.destino_nome+' (venda)', prev: null, latitude: e.latitude, longitude: e.longitude }));
-  if (document.getElementById('sugFreezers').checked) fila.freezers.forEach(f => itens.push({ tipo: 'freezer', ref: f, nome: '❄️ '+f.ponto_venda, prev: null, latitude: f.latitude, longitude: f.longitude }));
   if (!itens.length) { alert('Não há itens na fila para distribuir.'); return; }
   itens = itens.map(i => temCoord(i) ? { ...i, ...comNumeros(i), geo: true } : { ...i, geo: false });
 
