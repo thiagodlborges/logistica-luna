@@ -152,6 +152,18 @@ body{font-family:"Jost",sans-serif;background:var(--creme);color:var(--text);min
 #mapaMonitor{width:100%;height:100%}
 
 
+.cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cal-head b{font-family:"Cormorant Garamond",serif;font-size:1.15rem;color:var(--bordo);text-transform:capitalize}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.cal-grid .dow{font-size:0.66rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-light);padding:4px 0}
+.cal-grid button{border:1.5px solid transparent;background:var(--creme);border-radius:8px;padding:9px 0;font-family:"Jost",sans-serif;font-size:0.85rem;cursor:pointer;color:var(--text)}
+.cal-grid button:hover{border-color:var(--marrom-light)}
+.cal-grid button.hoje{border-color:var(--marrom-light)}
+.cal-grid button.sel{background:var(--bordo);color:var(--creme);border-color:var(--bordo)}
+.cal-grid .vazio{visibility:hidden}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{border:1.5px solid var(--creme-dark);background:var(--white);border-radius:20px;padding:6px 12px;font-family:"Jost",sans-serif;font-size:0.78rem;cursor:pointer;color:var(--text)}
+.chips button.sel{background:var(--bordo);color:var(--creme);border-color:var(--bordo)}
 .grade-wrap{overflow-x:auto}
 table.grade{border-collapse:separate;border-spacing:6px;width:100%;min-width:900px}
 table.grade th{font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-light);font-weight:600;text-align:center;padding:6px}
@@ -371,16 +383,68 @@ table.grade td.completo{background:#E4F3EA}
     <input type="hidden" id="mDiaVeiculo"><input type="hidden" id="mDiaData">
     <div class="m-row">
       <div><label class="m-label">Motorista (opcional)</label><input class="m-input" id="mDiaMotorista" onchange="salvarMotoristaDia()"></div>
-      <div><label class="m-label">Saída prevista</label><input type="time" class="m-input" id="mDiaHora" onchange="salvarMotoristaDia()"></div>
+      <div><label class="m-label">Saída prevista</label>
+        <input class="m-input" id="mDiaSaida" readonly placeholder="Escolher dia e horário" style="cursor:pointer" onclick="abrirSeletorSaida()">
+        <input type="hidden" id="mDiaHora"></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 10px">
       <button class="btn btn-secondary btn-sm" onclick="toggleAdicionarDia()">+ Adicionar da fila</button>
       <button class="btn btn-secondary btn-sm" onclick="otimizarDia()">✨ Otimizar ordem</button>
       <button class="btn btn-secondary btn-sm" onclick="abrirMapsDia()">🗺️ Abrir no Google Maps</button>
+      <button class="btn btn-green btn-sm ml-auto" onclick="abrirLote()">✓ Confirmar todas as entregas do dia</button>
     </div>
     <div id="mDiaAdd" style="display:none" class="card"></div>
     <div id="mDiaParadas"></div>
     <div class="m-actions"><button class="btn btn-secondary" onclick="fecharModal('modalDia')">Fechar</button></div>
+  </div>
+</div>
+
+<!-- MODAL SAÍDA PREVISTA (calendário + horário) -->
+<div class="modal-overlay" id="modalSaida">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-title">Saída prevista</div>
+    <div class="modal-sub" id="mSaidaResumo"></div>
+    <div class="cal-head">
+      <button class="btn btn-ghost btn-sm" onclick="mudarMesSaida(-1)">◀</button>
+      <b id="mSaidaMes"></b>
+      <button class="btn btn-ghost btn-sm" onclick="mudarMesSaida(1)">▶</button>
+    </div>
+    <div class="cal-grid" id="mSaidaCal"></div>
+    <label class="m-label">Horário</label>
+    <div class="chips" id="mSaidaChips"></div>
+    <div class="m-row" style="margin-top:10px;align-items:center">
+      <input type="time" class="m-input" id="mSaidaHoraManual" onchange="escolherHoraSaida(this.value)">
+      <button class="btn btn-ghost btn-sm" style="flex:0 0 auto" onclick="escolherHoraSaida('')">Sem horário</button>
+    </div>
+    <div class="m-aviso" id="mSaidaAviso" style="display:none"></div>
+    <div class="m-actions">
+      <button class="btn btn-secondary" onclick="fecharModal('modalSaida')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarSaida()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAR ENTREGAS DO DIA -->
+<div class="modal-overlay" id="modalLote">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-title">Confirmar entregas do dia</div>
+    <div class="modal-sub" id="mLoteSub"></div>
+    <div class="m-row">
+      <div><label class="m-label">Data da entrega</label><input type="date" class="m-input" id="mLoteData"></div>
+      <div><label class="m-label">Recebido por (opcional)</label><input class="m-input" id="mLoteRecebedor"></div>
+    </div>
+    <div id="mLoteFreezerBox" style="display:none">
+      <label class="m-label">Prazos das vendas de freezers (dias após a entrega, separados por / )</label>
+      <input class="m-input" id="mLotePrazos" value="30" placeholder="Ex: 30/60/90">
+      <div class="demanda-sub">Cada venda usa o prazo acima e a forma de pagamento definida na efetivação. Para prazos diferentes por venda, confirme-as uma a uma.</div>
+    </div>
+    <label class="m-label">Paradas</label>
+    <div class="chk-col" id="mLoteLista" style="max-height:260px;overflow:auto"></div>
+    <div class="m-aviso">Pedidos de loja viram <strong>Enviado</strong> (com baixa de estoque). Vendas de freezers geram o <strong>contas a receber</strong>. Se alguma falhar (ex.: estoque insuficiente), as demais são confirmadas e você vê o motivo ao final.</div>
+    <div class="m-actions">
+      <button class="btn btn-secondary" onclick="fecharModal('modalLote')">Cancelar</button>
+      <button class="btn btn-green" id="btnConfirmarLote" onclick="confirmarLote()">✓ Confirmar selecionadas</button>
+    </div>
   </div>
 </div>
 
@@ -1073,6 +1137,7 @@ function abrirDia(veiculoId, data) {
   document.getElementById('mDiaSub').textContent = `${DIAS_SEMANA[(new Date(y, m-1, d).getDay()+6)%7]}, ${fmtData(data)}`;
   document.getElementById('mDiaMotorista').value = rota ? (rota.motorista_nome || '') : (v.motorista_nome || '');
   document.getElementById('mDiaHora').value = rota && rota.hora_saida_prevista ? rota.hora_saida_prevista.slice(0,5) : '';
+  atualizarCampoSaida();
   document.getElementById('mDiaAdd').style.display = 'none';
   renderDia();
   document.getElementById('modalDia').classList.add('show');
@@ -1209,14 +1274,18 @@ async function abrirEntrega(id) {
   document.getElementById('modalEntrega').classList.add('show');
 }
 
-// Parcelas iguais (em centavos) com vencimento = data da entrega + prazo em dias
+// Parcelas iguais (em centavos) com vencimento = data da entrega + prazo em dias ("30/60/90" ou lista)
+function montarParcelas(valorTotal, dataEnt, prazosTxt) {
+  let prazos = (Array.isArray(prazosTxt) ? prazosTxt : String(prazosTxt || '').split(/[\/,;\s]+/)).map(Number).filter(n => !isNaN(n) && n >= 0);
+  if (!prazos.length) prazos = [30];
+  const total = Math.round(Number(valorTotal) * 100), base = Math.floor(total / prazos.length), resto = total - base * prazos.length;
+  return prazos.map((d, i) => ({ valor: (base + (i < resto ? 1 : 0)) / 100, vencimento: addDias(dataEnt, d) }));
+}
 function gerarParcelasEntrega() {
   if (!entVenda) return;
   const dataEnt = document.getElementById('mEntregaData').value || hojeLocal();
-  let prazos = document.getElementById('mEntregaPrazos').value.split(/[\/,;\s]+/).map(Number).filter(n => !isNaN(n) && n >= 0);
-  if (!prazos.length) prazos = [30];
-  const total = Math.round(Number(entVenda.valor_liquido) * 100), base = Math.floor(total / prazos.length), resto = total - base * prazos.length;
-  entParcelas = prazos.map((d, i) => ({ valor: ((base + (i < resto ? 1 : 0)) / 100).toFixed(2), vencimento: addDias(dataEnt, d) }));
+  const prazos = document.getElementById('mEntregaPrazos').value;
+  entParcelas = montarParcelas(entVenda.valor_liquido, dataEnt, prazos).map(p => ({ ...p, valor: p.valor.toFixed(2) }));
   renderParcelasEntrega();
 }
 function renderParcelasEntrega() {
@@ -1385,6 +1454,128 @@ async function aplicarSugestao() {
   fecharModal('modalSugestao');
   sugestaoPlano = null;
   await Promise.all([carregarGrade(), carregarFila()]);
+}
+
+// ── SAÍDA PREVISTA (calendário + horário) ───────────────────
+let saidaSel = { data: '', hora: '', mes: '' };
+const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+function fmtSaida(data, hora) {
+  const [y, m, d] = data.split('-').map(Number);
+  const dia = DIAS_SEMANA[(new Date(y, m-1, d).getDay()+6)%7].toLowerCase();
+  return `${dia}, ${fmtDiaCurto(data)}${hora ? ' às '+hora : ' · sem horário'}`;
+}
+function atualizarCampoSaida() {
+  document.getElementById('mDiaSaida').value = diaAtual ? fmtSaida(diaAtual.data, document.getElementById('mDiaHora').value) : '';
+}
+function abrirSeletorSaida() {
+  saidaSel = { data: diaAtual.data, hora: document.getElementById('mDiaHora').value, mes: diaAtual.data.slice(0,7) };
+  renderSeletorSaida();
+  document.getElementById('modalSaida').classList.add('show');
+}
+function mudarMesSaida(n) {
+  const [y, m] = saidaSel.mes.split('-').map(Number);
+  const d = new Date(y, m-1+n, 1);
+  saidaSel.mes = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  renderSeletorSaida();
+}
+function escolherDiaSaida(d) { saidaSel.data = d; renderSeletorSaida(); }
+function escolherHoraSaida(h) { saidaSel.hora = h; renderSeletorSaida(); }
+function renderSeletorSaida() {
+  const [y, m] = saidaSel.mes.split('-').map(Number);
+  document.getElementById('mSaidaMes').textContent = `${MESES[m-1]} de ${y}`;
+  const primeiro = (new Date(y, m-1, 1).getDay()+6)%7, dias = new Date(y, m, 0).getDate(), hoje = hojeLocal();
+  let html = DIAS_SEMANA.map(d => `<div class="dow">${d}</div>`).join('') + '<span class="vazio"></span>'.repeat(primeiro);
+  for (let d = 1; d <= dias; d++) {
+    const iso = `${saidaSel.mes}-${String(d).padStart(2,'0')}`;
+    html += `<button class="${iso===saidaSel.data?'sel':''} ${iso===hoje?'hoje':''}" onclick="escolherDiaSaida('${iso}')">${d}</button>`;
+  }
+  document.getElementById('mSaidaCal').innerHTML = html;
+  const horas = []; for (let h = 5; h <= 14; h++) { horas.push(String(h).padStart(2,'0')+':00'); if (h < 14) horas.push(String(h).padStart(2,'0')+':30'); }
+  document.getElementById('mSaidaChips').innerHTML = horas.map(h => `<button class="${h===saidaSel.hora?'sel':''}" onclick="escolherHoraSaida('${h}')">${h}</button>`).join('');
+  document.getElementById('mSaidaHoraManual').value = saidaSel.hora;
+  document.getElementById('mSaidaResumo').textContent = fmtSaida(saidaSel.data, saidaSel.hora);
+  const muda = saidaSel.data !== diaAtual.data, av = document.getElementById('mSaidaAviso');
+  av.style.display = muda ? 'block' : 'none';
+  av.textContent = muda ? 'Mudar o dia move a rota inteira deste veículo (com as paradas) para a nova data.' : '';
+}
+async function confirmarSaida() {
+  document.getElementById('mDiaHora').value = saidaSel.hora;
+  if (saidaSel.data !== diaAtual.data) {
+    if (!(await moverRotaDia(saidaSel.data))) return;
+  } else {
+    await salvarMotoristaDia();
+  }
+  atualizarCampoSaida();
+  fecharModal('modalSaida');
+}
+async function moverRotaDia(novaData) {
+  const rota = rotaDe(diaAtual.veiculoId, diaAtual.data);
+  if (rota) {
+    if (paradasDaRota(rota.id).some(p => p.status === 'entregue')) { alert('Esta rota já tem entregas confirmadas e não pode mudar de dia.'); return false; }
+    const { data: existe } = await sb.from('logistica_rotas').select('id').eq('veiculo_id', diaAtual.veiculoId).eq('data_rota', novaData).neq('status','cancelada').limit(1);
+    if (existe && existe.length) { alert('Este veículo já tem rota em '+fmtData(novaData)+'. Escolha outro dia ou mova as paradas manualmente.'); return false; }
+    const { error } = await sb.from('logistica_rotas').update({ data_rota: novaData, hora_saida_prevista: document.getElementById('mDiaHora').value || null }).eq('id', rota.id);
+    if (error) { alert('Erro ao mover a rota: '+error.message); return false; }
+  }
+  semanaIni = segundaDe(novaData);
+  await carregarGrade();
+  abrirDia(diaAtual.veiculoId, novaData);
+  document.getElementById('mDiaHora').value = saidaSel.hora;
+  atualizarCampoSaida();
+  return true;
+}
+
+// ── CONFIRMAR TODAS AS ENTREGAS DO DIA ──────────────────────
+function abertasDoDia() {
+  const rota = rotaDe(diaAtual.veiculoId, diaAtual.data);
+  return rota ? paradasDaRota(rota.id).filter(p => ['programada','pendente','em_rota','problema'].includes(p.status)) : [];
+}
+function abrirLote() {
+  const ps = abertasDoDia();
+  if (!ps.length) { alert('Não há paradas pendentes neste dia.'); return; }
+  const hoje = hojeLocal();
+  document.getElementById('mLoteSub').textContent = `${nomeVeiculo(todosVeiculos.find(v => v.id === diaAtual.veiculoId))} — ${fmtSaida(diaAtual.data, '').replace(' · sem horário','')}`;
+  document.getElementById('mLoteData').value = diaAtual.data <= hoje ? diaAtual.data : hoje;
+  document.getElementById('mLoteRecebedor').value = '';
+  document.getElementById('mLoteFreezerBox').style.display = ps.some(p => p.tipo === 'freezer' && p.visita_id) ? 'block' : 'none';
+  document.getElementById('mLoteLista').innerHTML = ps.map(p => `<label><input type="checkbox" class="chk-lote" value="${p.id}" checked> ${iconeTipoEntrega(p.tipo)} ${esc(p.numero_pedido ? p.numero_pedido+' — ' : '')}${esc(p.destino_nome)}${p.valor_venda ? ' — '+fmtMoeda(p.valor_venda) : ''}</label>`).join('');
+  document.getElementById('modalLote').classList.add('show');
+}
+async function confirmarLote() {
+  const ids = [...document.querySelectorAll('.chk-lote:checked')].map(c => c.value);
+  if (!ids.length) { alert('Selecione ao menos uma parada.'); return; }
+  const data = document.getElementById('mLoteData').value || hojeLocal();
+  const recebido = document.getElementById('mLoteRecebedor').value.trim() || null;
+  const prazos = document.getElementById('mLotePrazos').value;
+  if (!confirm(`Confirmar a entrega de ${ids.length} parada(s) em ${fmtData(data)}?`)) return;
+  const btn = document.getElementById('btnConfirmarLote');
+  btn.disabled = true; btn.textContent = 'Confirmando…';
+  const rotaId = (rotaDe(diaAtual.veiculoId, diaAtual.data) || {}).id;
+  let ok = 0; const falhas = [];
+  for (const id of ids) {
+    const e = entregasSemana.find(x => x.id === id);
+    try {
+      if (e.tipo === 'freezer' && e.visita_id) {
+        const { data: info, error: eInfo } = await sb.rpc('logistica_info_venda_freezer', { p_entrega_id: id });
+        if (eInfo) throw eInfo;
+        const { error } = await sb.rpc('logistica_confirmar_entrega_freezer', {
+          p_entrega_id: id, p_data_entrega: data, p_recebido_por: recebido, p_observacoes: null,
+          p_forma_pagamento: info.forma_pagamento || 'Boleto',
+          p_parcelas: info.ja_tem_cobranca ? null : montarParcelas(info.valor_liquido, data, prazos)
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await sb.from('logistica_entregas').update({ status: 'entregue', hora_entrega_real: new Date().toISOString(), recebido_por: recebido }).eq('id', id);
+        if (error) throw error;
+      }
+      ok++;
+    } catch (err) { falhas.push(`• ${e.destino_nome}: ${err.message}`); }
+  }
+  if (rotaId) await atualizarStatusRota(rotaId);
+  btn.disabled = false; btn.textContent = '✓ Confirmar selecionadas';
+  fecharModal('modalLote');
+  await Promise.all([carregarGrade(), carregarMonitor(), carregarFila()]);
+  alert(`${ok} entrega(s) confirmada(s).` + (falhas.length ? `\n\nNão foi possível confirmar ${falhas.length}:\n${falhas.join('\n')}\n\nElas continuam pendentes — confirme-as individualmente ou corrija o problema.` : ''));
 }
 
 // ── GOOGLE MAPS (links, sem exigir API key) ─────────────────
