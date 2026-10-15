@@ -274,11 +274,6 @@ table.grade td.completo{background:#E4F3EA}
         <div id="listaFilaPedidos"><div class="empty-state">Carregando…</div></div>
       </div>
       <div class="card">
-        <div class="card-title">Em preparo na fábrica</div>
-        <div class="modal-sub">Pedidos aprovados / confirmados / em separação. Ainda não liberados para a logística — só aparecem aqui para planejamento.</div>
-        <div id="listaFabrica"><div class="empty-state">Carregando…</div></div>
-      </div>
-      <div class="card">
         <div class="card-title">Devolvidos à fábrica para ajuste</div>
         <div id="listaDevolvidos"><div class="empty-state">Carregando…</div></div>
       </div>
@@ -536,7 +531,7 @@ const LOGO_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAB9AAAAfQCAY
 
 let meuUsuario = null, meuPerfil = null;
 let todosVeiculos = [], rotasSemana = [], entregasSemana = [], monitorEntregas = [];
-let fila = { pedidos: [], fabrica: [], devolvidos: [], vendas: [] };
+let fila = { pedidos: [], devolvidos: [], vendas: [] };
 let entVenda = null, entParcelas = [];
 let enderecosLojas = {}, deposito = null, diaAtual = null, sugestaoPlano = null;
 let semanaIni = segundaDe(hojeLocal());
@@ -859,17 +854,15 @@ async function localizarLojasPendentes() {
 // ── FILA DE ENTREGA (pedidos liberados pela fábrica + freezers) ──
 async function carregarFila() {
   const STATUS_ATIVOS = ['pendente','programada','em_rota','problema'];
-  const [rLog, rFab, rDev, rEnt, rVen] = await Promise.all([
+  const [rLog, rDev, rEnt, rVen] = await Promise.all([
     sb.from('pedidos').select('id,numero_pedido,loja,data_entrega_prevista,status').eq('status','em_logistica').order('data_entrega_prevista'),
-    sb.from('pedidos').select('id,numero_pedido,loja,data_entrega_prevista,status').in('status',['aprovado','confirmado','separado']).order('data_entrega_prevista'),
     sb.from('pedidos').select('id,numero_pedido,loja,data_entrega_prevista,logistica_motivo').eq('status','devolvido_logistica').order('data_entrega_prevista'),
     sb.from('logistica_entregas').select('pedido_id,freezer_id,tipo').in('status', STATUS_ATIVOS),
     sb.from('logistica_entregas').select('*').eq('tipo','freezer').eq('status','pendente').is('rota_id', null).not('visita_id','is', null).order('criado_em')
   ]);
-  [rLog, rFab, rDev, rEnt, rVen].forEach(r => r.error && console.error(r.error));
+  [rLog, rDev, rEnt, rVen].forEach(r => r.error && console.error(r.error));
   const comEntrega = new Set((rEnt.data || []).map(e => e.tipo === 'pedido' ? 'p'+e.pedido_id : e.tipo === 'freezer' ? 'f'+e.freezer_id : ''));
   fila.pedidos = (rLog.data || []).filter(p => !comEntrega.has('p'+p.id));
-  fila.fabrica = rFab.data || [];
   fila.devolvidos = rDev.data || [];
   fila.vendas = rVen.data || [];
   document.getElementById('stPendentes').textContent = fila.pedidos.length + fila.vendas.length;
@@ -893,15 +886,6 @@ function renderFila() {
       <button class="btn btn-ghost btn-sm" onclick="abrirModalDevolver(${p.id})">↩ Devolver à fábrica</button>
       <div id="itens-fila-${p.id}" style="flex-basis:100%;display:none"></div>
     </div>`).join('') : '<div class="empty-state">Nenhum pedido aguardando programação. Os pedidos aparecem aqui quando a fábrica os envia para a logística.</div>';
-
-  document.getElementById('listaFabrica').innerHTML = fila.fabrica.length ? fila.fabrica.map(p => `
-    <div class="demanda-row">
-      <div class="demanda-info">
-        <div class="demanda-nome">🏭 ${esc(p.numero_pedido||'#'+p.id)} — ${esc(p.loja)}</div>
-        <div class="demanda-sub">Entrega prevista: ${fmtData(p.data_entrega_prevista)}</div>
-      </div>
-      <span class="badge b-${p.status}">${{aprovado:'Aprovado',confirmado:'Confirmado',separado:'Em separação'}[p.status]}</span>
-    </div>`).join('') : '<div class="empty-state">Nada em preparo no momento.</div>';
 
   document.getElementById('listaDevolvidos').innerHTML = fila.devolvidos.length ? fila.devolvidos.map(p => `
     <div class="demanda-row">
