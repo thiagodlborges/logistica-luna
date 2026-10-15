@@ -11,6 +11,8 @@ Faz parte da suíte de sistemas da Luna Gelato (mesmo backend Supabase de [`pedi
 - **Resultado da entrega**: em cada parada o operador marca **✓ Entregue** (o pedido passa a **Enviado** nos dois módulos, com a baixa de estoque) ou **✕ Não entregue** — reprogramar (volta para a fila) ou **devolver à fábrica** por inconsistência (falta de produto etc.).
 - **Devolução à fábrica**: o pedido volta ao módulo Pedidos — Fábrica (`devolvido_logistica`, com o motivo) para troca/remoção de itens; depois a fábrica usa **Reenviar p/ Logística** e ele reaparece na fila.
 - **Vendas de freezers**: propostas efetivadas no módulo Freezers chegam à fila como "aguardando envio". O **parcelamento e os vencimentos são definidos aqui**, ao confirmar a entrega (prazos em dias contados da data da entrega, ex.: 30/60/90); só então o **contas a receber** (`cobrancas`) é gerado. "Não entregue" devolve a venda à fila sem perdê-la.
+- **Rota completa**: no modal do dia, o gestor marca a rota do veículo como completa. O card fica azul com 🔒, e a rota deixa de aceitar novas entregas ou etapas (inclusive na sugestão de grade e por gatilho no banco) até ser reaberta pelo botão "🔓 Reabrir rota para edição".
+- **Etapa manual**: "+ Etapa manual" adiciona à rota uma parada que não é entrega de produto (retirada de materiais, compra, manutenção, outra demanda), com local, endereço e horário; entra na otimização se o endereço puder ser localizado.
 - **Veículos**: só o **nome** é obrigatório; placa, modelo, capacidade, motorista etc. são opcionais.
 - **Endereços**: endereço de cada loja cadastrado uma vez (coordenadas localizadas pelo Google Maps com a chave da aba Config); usado na grade e na otimização. Opcionalmente, configure o **ponto de saída** (fábrica).
 - **Painel**: rotas do dia, progresso e mapa das paradas pendentes.
@@ -18,7 +20,7 @@ Faz parte da suíte de sistemas da Luna Gelato (mesmo backend Supabase de [`pedi
 > O status **Enviado** deixou de ser acionável no módulo Pedidos — Fábrica: o último status editável lá é *Enviar para Setor Logístico*. "Enviado" só é definido aqui, ao confirmar a entrega (garantido por gatilho no banco).
 
 ### Banco de dados
-Rode `sql/2026-10-logistica-fluxo-simplificado.sql` e `sql/2026-10-freezer-parcelamento-na-logistica.sql` (nessa ordem, uma vez cada) no SQL Editor do Supabase **antes** de publicar esta versão (e a nova versão de `pedidosacessofabrica`). Pedidos já enviados permanecem como `enviado`.
+Rode `sql/2026-10-logistica-fluxo-simplificado.sql` e `sql/2026-10-freezer-parcelamento-na-logistica.sql` e `sql/2026-10-rota-completa.sql` (nessa ordem, uma vez cada) no SQL Editor do Supabase **antes** de publicar esta versão (e a nova versão de `pedidosacessofabrica`). Pedidos já enviados permanecem como `enviado`.
 
 ## Stack
 

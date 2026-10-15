@@ -174,7 +174,10 @@ table.grade td{vertical-align:top;background:var(--white);border:1.5px solid var
 table.grade td:hover{border-color:var(--bordo)}
 table.grade td.hoje{border-color:var(--marrom-light)}
 table.grade td.vazio{background:transparent;border-style:dashed}
+table.grade td.fechada{background:#E8EAF6;border-color:#9FA8DA}
 table.grade td.completo{background:#E4F3EA}
+.g-lock{font-size:0.68rem;font-weight:600;color:#3949AB;margin-bottom:2px}
+.rota-fechada-aviso{background:#E8EAF6;border:1px solid #9FA8DA;color:#283593;border-radius:8px;padding:8px 12px;font-size:0.78rem;margin:10px 0}
 .g-cont{font-size:0.82rem;font-weight:600;color:var(--bordo)}
 .g-prog{font-size:0.66rem;color:var(--text-light);margin-bottom:4px}
 .g-item{font-size:0.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}
@@ -388,14 +391,19 @@ table.grade td.completo{background:#E4F3EA}
         <input type="hidden" id="mDiaHora"></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 10px">
-      <button class="btn btn-secondary btn-sm" onclick="toggleAdicionarDia()">+ Adicionar da fila</button>
+      <button class="btn btn-secondary btn-sm" id="btnAddFila" onclick="toggleAdicionarDia()">+ Adicionar da fila</button>
+      <button class="btn btn-secondary btn-sm" id="btnAddManual" onclick="abrirModalManual()">+ Etapa manual</button>
       <button class="btn btn-secondary btn-sm" onclick="otimizarDia()">✨ Otimizar ordem</button>
       <button class="btn btn-secondary btn-sm" onclick="abrirMapsDia()">🗺️ Abrir no Google Maps</button>
       <button class="btn btn-green btn-sm ml-auto" onclick="abrirLote()">✓ Confirmar todas as entregas do dia</button>
     </div>
+    <div class="rota-fechada-aviso" id="mDiaFechadaAviso" style="display:none"></div>
     <div id="mDiaAdd" style="display:none" class="card"></div>
     <div id="mDiaParadas"></div>
-    <div class="m-actions"><button class="btn btn-secondary" onclick="fecharModal('modalDia')">Fechar</button></div>
+    <div class="m-actions">
+      <button class="btn btn-secondary" onclick="fecharModal('modalDia')">Fechar</button>
+      <button class="btn btn-primary" id="btnRotaCompleta" onclick="alternarRotaCompleta()">🔒 Marcar rota como completa</button>
+    </div>
   </div>
 </div>
 
@@ -444,6 +452,33 @@ table.grade td.completo{background:#E4F3EA}
     <div class="m-actions">
       <button class="btn btn-secondary" onclick="fecharModal('modalLote')">Cancelar</button>
       <button class="btn btn-green" id="btnConfirmarLote" onclick="confirmarLote()">✓ Confirmar selecionadas</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ETAPA MANUAL (retirada de materiais / outras demandas) -->
+<div class="modal-overlay" id="modalManual">
+  <div class="modal">
+    <div class="modal-title">Etapa manual na rota</div>
+    <div class="modal-sub">Para demandas que não são entrega de produto: retirada de materiais, compras, manutenção etc.</div>
+    <label class="m-label">Tipo de demanda</label>
+    <select class="m-select" id="mManualTipo">
+      <option>Retirada de materiais</option><option>Compra / abastecimento</option>
+      <option>Manutenção / serviço</option><option>Devolução / coleta</option><option>Outra demanda</option>
+    </select>
+    <label class="m-label">Descrição</label>
+    <input class="m-input" id="mManualDescricao" placeholder="Ex: retirar caixas de embalagem no fornecedor">
+    <label class="m-label">Local *</label>
+    <input class="m-input" id="mManualLocal" placeholder="Nome do local">
+    <label class="m-label">Endereço *</label>
+    <input class="m-input" id="mManualEndereco" placeholder="Rua, número, bairro">
+    <div class="m-row">
+      <div><label class="m-label">Cidade</label><input class="m-input" id="mManualCidade"></div>
+      <div><label class="m-label">Horário previsto</label><input type="time" class="m-input" id="mManualHora"></div>
+    </div>
+    <div class="m-actions">
+      <button class="btn btn-secondary" onclick="fecharModal('modalManual')">Cancelar</button>
+      <button class="btn btn-primary" id="btnSalvarManual" onclick="salvarEtapaManual()">Adicionar à rota</button>
     </div>
   </div>
 </div>
@@ -535,7 +570,7 @@ table.grade td.completo{background:#E4F3EA}
     <div class="modal-sub" id="mNaoSub"></div>
     <label class="m-label">O que fazer?</label>
     <div class="chk-col">
-      <label><input type="radio" name="mNaoAcao" value="reprogramar" checked onchange="atualizarNaoAcao()"> Reprogramar — volta para a fila de entregas</label>
+      <label><input type="radio" name="mNaoAcao" value="reprogramar" checked onchange="atualizarNaoAcao()"> <span id="mNaoTxtReprog">Reprogramar — volta para a fila de entregas</span></label>
       <label id="mNaoLblDevolver"><input type="radio" name="mNaoAcao" value="devolver" onchange="atualizarNaoAcao()"> Devolver à fábrica — inconsistência no pedido (falta de produto etc.)</label>
     </div>
     <label class="m-label" id="mNaoMotivoLbl">Motivo (opcional)</label>
@@ -1079,6 +1114,7 @@ async function desprogramarEntrega(e, nota) {
 async function programarItens(veiculoId, data, itens) {
   try {
     const rota = await getOuCriarRota(veiculoId, data);
+    if (rota.fechada) return new Error('A rota deste veículo em '+fmtData(data)+' está marcada como completa e não aceita novas entregas. Reabra a rota para editar.');
     for (const it of itens) {
       const err = await inserirParada(rota, it.tipo, it.ref);
       if (err) return err;
@@ -1119,11 +1155,13 @@ function renderGrade() {
       const rota = rotaDe(v.id, d.data);
       const ps = rota ? paradasDaRota(rota.id) : [];
       const ok = ps.filter(p => p.status === 'entregue').length;
-      const cls = !ps.length ? 'vazio' : ok === ps.length ? 'completo' : '';
-      return `<td class="${cls} ${d.data===hoje?'hoje':''}" onclick="abrirDia('${v.id}','${d.data}')">` +
+      const fechada = !!(rota && rota.fechada);
+      const cls = (fechada ? 'fechada ' : '') + (!ps.length ? (fechada ? '' : 'vazio') : ok === ps.length ? 'completo' : '');
+      return `<td class="${cls} ${d.data===hoje?'hoje':''}" onclick="abrirDia('${v.id}','${d.data}')" ${fechada ? 'title="Rota completa — não aceita novas entregas"' : ''}>` +
+        (fechada ? '<div class="g-lock">🔒 Rota completa</div>' : '') +
         (ps.length ? `<div class="g-cont">${ps.length} parada${ps.length>1?'s':''}</div><div class="g-prog">${ok}/${ps.length} entregue${ok===1?'':'s'}</div>` +
           ps.slice(0,3).map(p => `<div class="g-item">${iconeTipoEntrega(p.tipo)} ${esc(p.destino_nome)}</div>`).join('') + (ps.length>3?`<div class="g-item">+${ps.length-3}…</div>`:'')
-          : '<div class="g-add">+</div>') + '</td>';
+          : (fechada ? '' : '<div class="g-add">+</div>')) + '</td>';
     }).join('') + '</tr>').join('') + '</tbody></table>';
 }
 
@@ -1147,6 +1185,16 @@ function renderDia() {
   if (!diaAtual) return;
   const rota = rotaDe(diaAtual.veiculoId, diaAtual.data);
   const ps = rota ? paradasDaRota(rota.id) : [];
+  const fechada = !!(rota && rota.fechada);
+  document.getElementById('btnAddFila').disabled = fechada;
+  document.getElementById('btnAddManual').disabled = fechada;
+  if (fechada) document.getElementById('mDiaAdd').style.display = 'none';
+  const av = document.getElementById('mDiaFechadaAviso');
+  av.style.display = fechada ? 'block' : 'none';
+  av.innerHTML = fechada ? `🔒 <strong>Rota completa</strong>${rota.fechada_por ? ' — fechada por '+esc(rota.fechada_por) : ''}${rota.fechada_em ? ' em '+fmtDataHora(rota.fechada_em) : ''}. Não aceita novas entregas ou etapas; reabra para editar.` : '';
+  const btnC = document.getElementById('btnRotaCompleta');
+  btnC.textContent = fechada ? '🔓 Reabrir rota para edição' : '🔒 Marcar rota como completa';
+  btnC.className = 'btn ' + (fechada ? 'btn-secondary' : 'btn-primary');
   const wrap = document.getElementById('mDiaParadas');
   if (!ps.length) { wrap.innerHTML = '<div class="empty-state">Nenhuma parada neste dia. Use "+ Adicionar da fila".</div>'; return; }
   wrap.innerHTML = ps.map((p, i) => {
@@ -1156,13 +1204,14 @@ function renderDia() {
       <div class="parada-info">
         <div class="parada-nome">${iconeTipoEntrega(p.tipo)} ${esc(p.numero_pedido ? p.numero_pedido+' — ' : '')}${esc(p.destino_nome)}</div>
         <div class="parada-end">${esc(p.destino_endereco||'sem endereço')} ${p.destino_cidade?'· '+esc(p.destino_cidade):''} ${temCoord(p)?'':'· ⚠️ sem coordenadas'}${p.valor_venda?' · '+fmtMoeda(p.valor_venda):''}${p.recebido_por?' · recebido por '+esc(p.recebido_por):''}</div>
+        ${p.tipo==='avulso' && p.observacoes ? `<div class="parada-end">📝 ${esc(p.observacoes)}${p.hora_prevista?' · '+p.hora_prevista.slice(0,5):''}</div>` : ''}
       </div>
       <span class="badge b-${p.status}">${labelStatusEntrega(p.status)}</span>
       ${p.tipo==='pedido' ? `<button class="btn btn-ghost btn-sm" onclick="verItens(${p.pedido_id}, 'itens-dia-${p.id}')">📋</button>` : ''}
       ${aberta ? `<button class="btn btn-ghost btn-sm" onclick="moverParada('${p.id}',-1)" ${i===0?'disabled':''}>↑</button>
                   <button class="btn btn-ghost btn-sm" onclick="moverParada('${p.id}',1)" ${i===ps.length-1?'disabled':''}>↓</button>
-                  <button class="btn btn-green btn-sm" onclick="abrirEntrega('${p.id}')">✓ Entregue</button>
-                  <button class="btn btn-red btn-sm" onclick="abrirNaoEntregue('${p.id}')">✕ Não entregue</button>
+                  <button class="btn btn-green btn-sm" onclick="abrirEntrega('${p.id}')">${p.tipo==='avulso' ? '✓ Concluída' : '✓ Entregue'}</button>
+                  <button class="btn btn-red btn-sm" onclick="abrirNaoEntregue('${p.id}')">${p.tipo==='avulso' ? '✕ Não realizada' : '✕ Não entregue'}</button>
                   <button class="btn btn-ghost btn-sm" onclick="removerParada('${p.id}')" title="Remover da grade (volta para a fila)">🗑</button>` : ''}
       <div id="itens-dia-${p.id}" style="flex-basis:100%;display:none"></div>
     </div>`;
@@ -1339,6 +1388,7 @@ function abrirNaoEntregue(id) {
   document.getElementById('mNaoId').value = id;
   document.getElementById('mNaoSub').textContent = `${e.destino_nome} — ${e.destino_endereco||''}`;
   document.getElementById('mNaoLblDevolver').style.display = e.tipo === 'pedido' ? '' : 'none';
+  document.getElementById('mNaoTxtReprog').textContent = e.tipo === 'avulso' ? 'Cancelar esta etapa da rota' : 'Reprogramar — volta para a fila de entregas';
   document.querySelector('input[name="mNaoAcao"][value="reprogramar"]').checked = true;
   document.getElementById('mNaoMotivo').value = '';
   atualizarNaoAcao();
@@ -1404,7 +1454,8 @@ function gerarSugestao() {
   itens = itens.map(i => temCoord(i) ? { ...i, ...comNumeros(i), geo: true } : { ...i, geo: false });
 
   const slots = [];
-  dias.forEach(d => veics.forEach(v => slots.push({ data: d, veiculoId: v, itens: [] })));
+  dias.forEach(d => veics.forEach(v => { if (!(rotaDe(v, d) || {}).fechada) slots.push({ data: d, veiculoId: v, itens: [] }); }));
+  if (!slots.length) { alert('Todas as rotas dos dias e veículos escolhidos estão marcadas como completas.'); return; }
   const menosCarregado = lista => lista.reduce((a, b) => b.itens.length < a.itens.length ? b : a);
 
   // pedidos com data prevista dentro dos dias escolhidos ficam fixos naquele dia
@@ -1454,6 +1505,55 @@ async function aplicarSugestao() {
   fecharModal('modalSugestao');
   sugestaoPlano = null;
   await Promise.all([carregarGrade(), carregarFila()]);
+}
+
+// ── ROTA COMPLETA (fecha o dia do veículo para novas entregas) ──
+async function alternarRotaCompleta() {
+  let rota = rotaDe(diaAtual.veiculoId, diaAtual.data);
+  if (!rota) {
+    try { rota = await getOuCriarRota(diaAtual.veiculoId, diaAtual.data); } catch (e) { alert('Erro: '+e.message); return; }
+  }
+  const fechar = !rota.fechada;
+  if (fechar && !paradasDaRota(rota.id).length && !confirm('Esta rota ainda não tem paradas. Marcar mesmo assim como completa? Nenhuma entrega poderá ser encaixada neste veículo/dia até reabrir.')) return;
+  if (!fechar && !confirm('Reabrir esta rota para edição? Ela voltará a aceitar novas entregas.')) return;
+  const { error } = await sb.from('logistica_rotas').update({
+    fechada: fechar, fechada_em: fechar ? new Date().toISOString() : null, fechada_por: fechar ? quemSou() : null
+  }).eq('id', rota.id);
+  if (error) { alert('Erro ao atualizar a rota: '+error.message+(/fechada/.test(error.message) ? '\n\nRode o SQL "2026-10-rota-completa.sql" no Supabase (veja o README).' : '')); return; }
+  await carregarGrade();
+}
+
+// ── ETAPA MANUAL (retirada de materiais, outras demandas) ───
+function abrirModalManual() {
+  ['mManualDescricao','mManualLocal','mManualEndereco','mManualCidade','mManualHora'].forEach(i => document.getElementById(i).value = '');
+  document.getElementById('mManualTipo').selectedIndex = 0;
+  document.getElementById('modalManual').classList.add('show');
+}
+async function salvarEtapaManual() {
+  const local = document.getElementById('mManualLocal').value.trim();
+  const endereco = document.getElementById('mManualEndereco').value.trim();
+  const cidade = document.getElementById('mManualCidade').value.trim();
+  if (!local || !endereco) { alert('Informe o local e o endereço da etapa.'); return; }
+  const btn = document.getElementById('btnSalvarManual');
+  btn.disabled = true; btn.textContent = 'Adicionando…';
+  try {
+    const rota = await getOuCriarRota(diaAtual.veiculoId, diaAtual.data);
+    if (rota.fechada) { alert('Esta rota está marcada como completa. Reabra-a para encaixar novas etapas.'); return; }
+    const { data: last } = await sb.from('logistica_entregas').select('ordem').eq('rota_id', rota.id).order('ordem', { ascending: false }).limit(1);
+    const desc = document.getElementById('mManualDescricao').value.trim();
+    const g = await geocodificar(endereco, cidade);   // sem chave do Maps, fica sem coordenadas (não entra na otimização)
+    const { error } = await sb.from('logistica_entregas').insert({
+      rota_id: rota.id, ordem: (last && last.length ? last[0].ordem : 0) + 1, tipo: 'avulso', status: 'programada',
+      destino_nome: local, destino_endereco: endereco, destino_cidade: cidade || null,
+      latitude: g ? g.lat : null, longitude: g ? g.lng : null,
+      hora_prevista: document.getElementById('mManualHora').value || null,
+      observacoes: document.getElementById('mManualTipo').value + (desc ? ' — '+desc : '')
+    });
+    if (error) { alert('Erro ao adicionar a etapa: '+error.message); return; }
+    fecharModal('modalManual');
+    await carregarGrade();
+  } catch (e) { alert('Erro: '+e.message); }
+  finally { btn.disabled = false; btn.textContent = 'Adicionar à rota'; }
 }
 
 // ── SAÍDA PREVISTA (calendário + horário) ───────────────────
