@@ -1139,6 +1139,13 @@ async function carregarGrade() {
   if (rotasSemana.length) {
     const { data: ent } = await sb.from('logistica_entregas').select('*').in('rota_id', rotasSemana.map(r => r.id)).order('ordem');
     entregasSemana = ent || [];
+    const fzIds = [...new Set(entregasSemana.map(e => e.freezer_id).filter(Boolean))];
+    if (fzIds.length) {
+      const { data: fz } = await sb.from('freezers').select('id,codigo_cliente').in('id', fzIds);
+      const cods = {};
+      (fz || []).forEach(f => cods[f.id] = f.codigo_cliente);
+      entregasSemana.forEach(e => { e.codigo_cliente = cods[e.freezer_id] || null; });
+    }
   }
   renderGrade();
   if (diaAtual && document.getElementById('modalDia').classList.contains('show')) renderDia();
@@ -1202,7 +1209,7 @@ function renderDia() {
     return `<div class="parada-row" style="flex-wrap:wrap">
       <div class="parada-ordem">${i+1}</div>
       <div class="parada-info">
-        <div class="parada-nome">${iconeTipoEntrega(p.tipo)} ${esc(p.numero_pedido ? p.numero_pedido+' — ' : '')}${esc(p.destino_nome)}</div>
+        <div class="parada-nome">${iconeTipoEntrega(p.tipo)} ${esc(p.numero_pedido ? p.numero_pedido+' — ' : '')}${esc(p.destino_nome)}${p.codigo_cliente ? ` <span class="demanda-sub">· Cód. ${esc(p.codigo_cliente)}</span>` : ''}</div>
         <div class="parada-end">${esc(p.destino_endereco||'sem endereço')} ${p.destino_cidade?'· '+esc(p.destino_cidade):''} ${temCoord(p)?'':'· ⚠️ sem coordenadas'}${p.valor_venda?' · '+fmtMoeda(p.valor_venda):''}${p.recebido_por?' · recebido por '+esc(p.recebido_por):''}</div>
         ${p.tipo==='avulso' && p.observacoes ? `<div class="parada-end">📝 ${esc(p.observacoes)}${p.hora_prevista?' · '+p.hora_prevista.slice(0,5):''}</div>` : ''}
       </div>
@@ -1638,7 +1645,7 @@ function abrirLote() {
   document.getElementById('mLoteData').value = diaAtual.data <= hoje ? diaAtual.data : hoje;
   document.getElementById('mLoteRecebedor').value = '';
   document.getElementById('mLoteFreezerBox').style.display = ps.some(p => p.tipo === 'freezer' && p.visita_id) ? 'block' : 'none';
-  document.getElementById('mLoteLista').innerHTML = ps.map(p => `<label><input type="checkbox" class="chk-lote" value="${p.id}" checked> ${iconeTipoEntrega(p.tipo)} ${esc(p.numero_pedido ? p.numero_pedido+' — ' : '')}${esc(p.destino_nome)}${p.valor_venda ? ' — '+fmtMoeda(p.valor_venda) : ''}</label>`).join('');
+  document.getElementById('mLoteLista').innerHTML = ps.map(p => `<label><input type="checkbox" class="chk-lote" value="${p.id}" checked> ${iconeTipoEntrega(p.tipo)} ${esc(p.numero_pedido ? p.numero_pedido+' — ' : '')}${esc(p.destino_nome)}${p.codigo_cliente ? ' (Cód. '+esc(p.codigo_cliente)+')' : ''}${p.valor_venda ? ' — '+fmtMoeda(p.valor_venda) : ''}</label>`).join('');
   document.getElementById('modalLote').classList.add('show');
 }
 async function confirmarLote() {
