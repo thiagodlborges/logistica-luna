@@ -998,7 +998,7 @@ function renderFila() {
   document.getElementById('listaVendasFreezer').innerHTML = fila.vendas.length ? fila.vendas.map(e => `
     <div class="demanda-row">
       <div class="demanda-info">
-        <div class="demanda-nome">❄️ ${esc(e.destino_nome)} ${e.freezer_rede?'· '+esc(e.freezer_rede):''} — ${fmtMoeda(e.valor_venda)}</div>
+        <div class="demanda-nome">❄️ ${esc(e.destino_nome)} ${e.freezer_rede?'· '+esc(e.freezer_rede):''} — ${fmtMoeda(e.valor_venda)} ${e.proposta_pendente ? '<span class="badge b-pendente" title="Pode ser programada, mas só será concluída depois de efetivada no módulo Freezers">Proposta — aguardando efetivação</span>' : ''}</div>
         <div class="demanda-sub">${esc(e.destino_endereco||'sem endereço')} ${e.destino_cidade?'· '+esc(e.destino_cidade):''} · ${esc(e.observacoes||'')}</div>
       </div>
       <button class="btn btn-primary btn-sm" onclick="abrirModalProgramar('venda','${e.id}')">📅 Programar</button>
@@ -1214,10 +1214,13 @@ function renderDia() {
         ${p.tipo==='avulso' && p.observacoes ? `<div class="parada-end">📝 ${esc(p.observacoes)}${p.hora_prevista?' · '+p.hora_prevista.slice(0,5):''}</div>` : ''}
       </div>
       <span class="badge b-${p.status}">${labelStatusEntrega(p.status)}</span>
+      ${p.proposta_pendente ? '<span class="badge b-pendente" title="Proposta ainda não efetivada no módulo Freezers: não pode ser concluída">Proposta — aguardando efetivação</span>' : ''}
       ${p.tipo==='pedido' ? `<button class="btn btn-ghost btn-sm" onclick="verItens(${p.pedido_id}, 'itens-dia-${p.id}')">📋</button>` : ''}
       ${aberta ? `<button class="btn btn-ghost btn-sm" onclick="moverParada('${p.id}',-1)" ${i===0?'disabled':''}>↑</button>
                   <button class="btn btn-ghost btn-sm" onclick="moverParada('${p.id}',1)" ${i===ps.length-1?'disabled':''}>↓</button>
-                  <button class="btn btn-green btn-sm" onclick="abrirEntrega('${p.id}')">${p.tipo==='avulso' ? '✓ Concluída' : '✓ Entregue'}</button>
+                  ${p.proposta_pendente
+                    ? `<button class="btn btn-green btn-sm" disabled title="Efetive a venda no módulo Freezers para poder concluir esta entrega" style="opacity:.45;cursor:not-allowed">✓ Entregue</button>`
+                    : `<button class="btn btn-green btn-sm" onclick="abrirEntrega('${p.id}')">${p.tipo==='avulso' ? '✓ Concluída' : '✓ Entregue'}</button>`}
                   <button class="btn btn-red btn-sm" onclick="abrirNaoEntregue('${p.id}')">${p.tipo==='avulso' ? '✕ Não realizada' : '✕ Não entregue'}</button>
                   <button class="btn btn-ghost btn-sm" onclick="removerParada('${p.id}')" title="Remover da grade (volta para a fila)">🗑</button>` : ''}
       <div id="itens-dia-${p.id}" style="flex-basis:100%;display:none"></div>
@@ -1316,6 +1319,7 @@ async function abrirEntrega(id) {
   if (e.tipo === 'freezer' && e.visita_id) {
     const { data, error } = await sb.rpc('logistica_info_venda_freezer', { p_entrega_id: id });
     if (error) { alert('Erro ao carregar a venda: '+error.message); return; }
+    if (data && data.efetivada === false) { alert('Esta proposta ainda não foi efetivada no módulo de Freezers. Ela pode ficar programada no calendário, mas só pode ser concluída depois de efetivada.'); return; }
     entVenda = data;
     document.getElementById('mEntregaFreezer').style.display = 'block';
     document.getElementById('mEntregaData').value = hojeLocal();
@@ -1638,8 +1642,11 @@ function abertasDoDia() {
   return rota ? paradasDaRota(rota.id).filter(p => ['programada','pendente','em_rota','problema'].includes(p.status)) : [];
 }
 function abrirLote() {
-  const ps = abertasDoDia();
-  if (!ps.length) { alert('Não há paradas pendentes neste dia.'); return; }
+  const todas = abertasDoDia();
+  const ps = todas.filter(p => !p.proposta_pendente);
+  const semEfetivar = todas.length - ps.length;
+  if (!ps.length) { alert(semEfetivar ? 'As paradas deste dia são propostas ainda não efetivadas no módulo Freezers — só podem ser concluídas depois de efetivadas.' : 'Não há paradas pendentes neste dia.'); return; }
+  if (semEfetivar) alert(semEfetivar+' parada(s) deste dia são propostas ainda não efetivadas no módulo Freezers e ficam fora da confirmação em lote.');
   const hoje = hojeLocal();
   document.getElementById('mLoteSub').textContent = `${nomeVeiculo(todosVeiculos.find(v => v.id === diaAtual.veiculoId))} — ${fmtSaida(diaAtual.data, '').replace(' · sem horário','')}`;
   document.getElementById('mLoteData').value = diaAtual.data <= hoje ? diaAtual.data : hoje;
