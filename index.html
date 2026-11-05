@@ -964,6 +964,14 @@ async function carregarFila() {
   fila.pedidos = (rLog.data || []).filter(p => !comEntrega.has('p'+p.id));
   fila.devolvidos = rDev.data || [];
   fila.vendas = rVen.data || [];
+  const fzIds = [...new Set(fila.vendas.map(e => e.freezer_id).filter(Boolean))];
+  if (fzIds.length) {
+    const { data: fz, error: errFz } = await sb.from('freezers').select('id,codigo_cliente').in('id', fzIds);
+    if (errFz) console.error(errFz);
+    const cods = {};
+    (fz || []).forEach(f => cods[f.id] = f.codigo_cliente);
+    fila.vendas.forEach(e => { e.codigo_cliente = cods[e.freezer_id] || null; });
+  }
   document.getElementById('stPendentes').textContent = fila.pedidos.length + fila.vendas.length;
   renderFila();
 }
@@ -998,7 +1006,7 @@ function renderFila() {
   document.getElementById('listaVendasFreezer').innerHTML = fila.vendas.length ? fila.vendas.map(e => `
     <div class="demanda-row">
       <div class="demanda-info">
-        <div class="demanda-nome">❄️ ${esc(e.destino_nome)} ${e.freezer_rede?'· '+esc(e.freezer_rede):''} — ${fmtMoeda(e.valor_venda)} ${e.proposta_pendente ? '<span class="badge b-pendente" title="Pode ser programada, mas só será concluída depois de efetivada no módulo Freezers">Proposta — aguardando efetivação</span>' : ''}</div>
+        <div class="demanda-nome">❄️ ${esc(e.destino_nome)}${e.codigo_cliente ? ` <span class="demanda-sub">· Cód. ${esc(e.codigo_cliente)}</span>` : ''} ${e.freezer_rede?'· '+esc(e.freezer_rede):''} — ${fmtMoeda(e.valor_venda)} ${e.proposta_pendente ? '<span class="badge b-pendente" title="Pode ser programada, mas só será concluída depois de efetivada no módulo Freezers">Proposta — aguardando efetivação</span>' : ''}</div>
         <div class="demanda-sub">${esc(e.destino_endereco||'sem endereço')} ${e.destino_cidade?'· '+esc(e.destino_cidade):''} · ${esc(e.observacoes||'')}</div>
       </div>
       <button class="btn btn-primary btn-sm" onclick="abrirModalProgramar('venda','${e.id}')">📅 Programar</button>
